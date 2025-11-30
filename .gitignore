@@ -1,0 +1,45 @@
+# build-context
+**/target/
+**/build/
+
+# environment files and secrets
+.env
+.env.*.local
+.env.local
+
+# volumes and Build Caches
+db-data/
+queue-data/
+
+# dev-environment
+.vscode/
+.devcontainer/*-data/
+.devcontainer/*.log
+
+
+# python dependencies, caches, compiled files, environments etc
+__pycache__/
+*.pyc
+*.pyd
+*.pyo
+
+venv/
+env/
+.venv/
+*/venv/
+
+dist/
+build/
+*.egg-info/
+.coverage
+
+*.log
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+
+# sql config files
+adminer-config.json
+*.sql.bak
+*.dump
