@@ -3,20 +3,19 @@
 {
 	"name": "Existing Docker Compose (Extend)",
 
-	// Update the 'dockerComposeFile' list if you have more compose files or use different names.
 	// The .devcontainer/docker-compose.yml file contains any overrides you need/want to make.
 	"dockerComposeFile": [
-		"../compose.yaml",
-		"docker-compose.yml"
+		"../docker-compose.yaml",
+		"docker-compose.dev.yaml"
 	],
 
 	// The 'service' property is the name of the service for the container that VS Code should
 	// use. Update this value and .devcontainer/docker-compose.yml to the real service name.
-	"service": "server",
+	"service": "dispatcher",
 
 	// The optional 'workspaceFolder' property is the path VS Code should open by default when
 	// connected. This is typically a file mount in .devcontainer/docker-compose.yml
-	"workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
+	"workspaceFolder": "/app",
 
 	// Features to add to the dev container. More info: https://containers.dev/features.
 	// "features": {},
@@ -31,18 +30,22 @@
 	// "shutdownAction": "none",
 
 	// Uncomment the next line to run commands after the container is created.
-	// "postCreateCommand": "cat /etc/os-release",
+	"postCreateCommand": "pip install -r requirements.txt || true",
 
 	// Configure tool-specific properties.
 	"customizations": {
     	"vscode": {
       	"extensions": [
-        	"ms-python.python",  // Python-Support
-        	"ms-python.vscode-pylance" // IntelliSense
+        	"ms-python.python",
+            "ms-python.vscode-pylance",
+            "ms-azuretools.vscode-docker",
+            "redhat.vscode-yaml",
+            "formulahendry.vscode-docthis",
+            "cweijan.vscode-postgresql-client2"
       		]
     	}
-	}
+	},
 	
 	// Uncomment to connect as an existing user other than the container default. More info: https://aka.ms/dev-containers-non-root.
-	// "remoteUser": "devcontainer"
+	"remoteUser": "root"
 }
