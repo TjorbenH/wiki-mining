@@ -1,50 +1,93 @@
 services:
+  # 1. DISPATCHER
   # analyse the existing db and add new urls to crawl to the queue 
   # provide a montinoring and managment interface for the system
   dispatcher:
     build: ./dispatcher
     depends_on:
-      - db
-      - queue
+      db:
+        condition: service_healthy
+      queue:
+        condition: service_healthy
+    ports:
+      - "5000:5000" # montinoring web interface 
+    environment:
+      # db environment variables
+      DB_HOST: db                   
+      DB_PORT: 5432                 
+      DB_NAME: ${POSTGRES_DB}
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      # queue environment variables
+      QUEUE_HOST: queue
+      QUEUE_PORT: 6379
 
+  # 2. CRAWLER
   # does the actual crawling and scraping
   crawler:
     build: ./crawler
     depends_on:
-      - dispatcher
-      - queue
+      queue:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    environment:
+      # db environment variables
+      DB_HOST: db                   
+      DB_PORT: 5432                 
+      DB_NAME: ${POSTGRES_DB}
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      # queue environment variables
+      QUEUE_HOST: queue
+      QUEUE_PORT: 6379
   
-  # message queue to coordinate and synchonize the crawlers on a set of urls
+  # 3. MESSAGE QUEUE
+  # coordinate and synchonize the crawlers on a set of urls
   queue:
     image: redis:latest
+    restart: always
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 1s
+      timeout: 3s
+      retries: 5
     volumes:
       - queue-data:/var/lib/redis/data
 
-  # database to save the scraped data and metadata
+  # 4. DATABASE:
+  # Postgres database to save the scraped data and metadata
   db:
     image: postgres:latest
     restart: always
     environment:
-      # set values in the .env file
-      - POSTGRES_PASSWORD
-      - POSTGRES_DB
+      # set values in the .env file 
+      POSTGRES_DB: ${POSTGRES_DB}              
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 1s
-      timeout: 5s
-      retries: 10
+      timeout: 3s
+      retries: 5
     volumes:
       - db-data:/var/lib/postgresql/
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
 
+  # 5. ADMINER
   # admin interface into the postgress database
   adminer:
     image: adminer
     restart: always
     ports:
       - 8080:8080
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}              
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
 
-# persistent storage
+# PERSISTENT STORAGE
 volumes:
   db-data:
   queue-data:
