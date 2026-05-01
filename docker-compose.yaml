@@ -41,25 +41,30 @@ services:
       # queue environment variables
       QUEUE_HOST: queue
       QUEUE_PORT: 6379
+      # MiniIO environment variables 
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: raw_html
   
   # 3. MESSAGE QUEUE
   # coordinate and synchonize the crawlers on a set of urls
   queue:
     image: redis:latest
     restart: always
-    command: redis-server --appendonly yes
+    command: redis-server --appendonly yes --maxmemory 2gb --maxmemory-policy noeviction
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
-      interval: 1s
+      interval: 5s
       timeout: 3s
       retries: 5
     volumes:
-      - queue-data:/var/lib/redis/data
+      - queue-data:/data
 
   # 4. DATABASE:
   # Postgres database to save the scraped data and metadata
   db:
-    image: postgres:latest
+    image: postgres:16
     restart: always
     environment:
       # set values in the .env file 
@@ -73,8 +78,8 @@ services:
       retries: 5
       start_period: 30s
     volumes:
-      - db-data:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+      - db-data:/var/lib/postgresql/data/
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:z # REMOVE BEFORE FLIGHT :z is just for Fedora 
 
   # 5. ADMINER
   # admin interface into the postgress database
@@ -87,9 +92,43 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}              
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+  
+  # 6. MINIO 
+  # Object Storage for the large amounts of HTML Data expected
+  minio:
+    image: minio/minio
+    restart: always
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - "9000:9000" # API Port 
+      - "9001:9001" # Web-Interface
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - minio-data:/data
+
+  # 7. MINIO SETUP
+  minio-setup:
+    image: minio/mc
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set myminio http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD};
+      mc mb myminio/raw_html || true;
+      exit 0;
+      "
 
 # PERSISTENT STORAGE
 volumes:
   db-data:
   queue-data:
+  minio-data:
 
