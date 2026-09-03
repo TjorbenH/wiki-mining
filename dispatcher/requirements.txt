@@ -1,2 +1,2 @@
-requests
 redis
+asyncpg # interface for the PostgreSQL DB
