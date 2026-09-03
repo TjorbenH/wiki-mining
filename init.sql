@@ -1,18 +1,22 @@
 -- script to be executed on the first startup of the postgres docker container 
 
 CREATE TABLE IF NOT EXISTS RawData (
-    link TEXT PRIMARY KEY,
-    html TEXT
+    id BIGSERIAL PRIMARY KEY,
+    link TEXT UNIQUE NOT NULL, 
+    storage_key TEXT NOT NULL, -- path to the corresponding MINIO object
+    content_hash VARCHAR(64), -- to ensure data integrity and help de-duplicate
 );
 
 
 CREATE TABLE IF NOT EXISTS Links (
-    origin TEXT NOT NULL,
-    destination TEXT NOT NULL,
-    count integer default 1,
-    PRIMARY KEY (origin, destination),
+    origin_id BIGINT NOT NULL,
+    destination_id BIGINT NOT NULL,
+    count INTEGER DEFAULT 1,
+    PRIMARY KEY (origin_id, destination_id),
     CONSTRAINT fk_origin_rawdata
-        FOREIGN KEY (origin)    
-        REFERENCES RawData(link)
+        FOREIGN KEY (origin_id)    
+        REFERENCES RawData(id)
         ON DELETE CASCADE
 );
+
+-- CREATE INDEX IF NOT EXISTS idx_rawdata_link ON RawData(link);
