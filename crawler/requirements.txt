@@ -3,3 +3,4 @@ beautifulsoup4
 lxml
 redis
 minio
+asyncpg # interface for the PostgreSQL DB

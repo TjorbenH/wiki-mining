@@ -2,14 +2,13 @@
 
 CREATE TABLE IF NOT EXISTS RawData (
     id BIGSERIAL PRIMARY KEY,
-    link TEXT UNIQUE NOT NULL, 
+    link TEXT UNIQUE NOT NULL,
     storage_key TEXT, -- path to the corresponding MINIO object
     content_hash VARCHAR(64), -- to ensure data integrity and help de-duplicate
-    scraping_status TEXT NOT NULL DEFAULT 'queued' 
-        CHECK scraping_status IN ('queued', 'in_progress', 'done', 'failed'), -- ensure a failed scraping attempt doesn't loose the link but retries later
+    scraping_status TEXT NOT NULL DEFAULT 'queued'
+        CHECK (scraping_status IN ('queued', 'in_progress', 'done', 'failed')), -- ensure a failed scraping attempt doesn't lose the link but retries later
     attempts INT NOT NULL DEFAULT 0,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 

@@ -13,14 +13,18 @@ services:
       - "5000:5000" # montinoring web interface 
     environment:
       # db environment variables
-      DB_HOST: db                   
-      DB_PORT: 5432                 
-      DB_NAME: ${POSTGRES_DB}
-      DB_USER: ${POSTGRES_USER}
-      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_HOST: ${DB_HOST}                   
+      DB_PORT: ${DB_PORT}                 
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
       # queue environment variables
-      QUEUE_HOST: queue
-      QUEUE_PORT: 6379
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      REDIS_CRAWL_STREAM: ${REDIS_CRAWL_STREAM}
+      REDIS_CRAWL_GROUP: ${REDIS_CRAWL_GROUP}
+      REDIS_LINKS_QUEUE: ${REDIS_LINKS_QUEUE}
+
 
   # 2. CRAWLER
   # does the actual crawling and scraping
@@ -35,14 +39,17 @@ services:
         condition: service_healthy
     environment:
       # db environment variables
-      DB_HOST: db                   
-      DB_PORT: 5432                 
-      DB_NAME: ${POSTGRES_DB}
-      DB_USER: ${POSTGRES_USER}
-      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_HOST: ${DB_HOST}                   
+      DB_PORT: ${DB_PORT}                 
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
       # queue environment variables
-      QUEUE_HOST: queue
-      QUEUE_PORT: 6379
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      REDIS_CRAWL_STREAM: ${REDIS_CRAWL_STREAM}
+      REDIS_CRAWL_GROUP: ${REDIS_CRAWL_GROUP}
+      REDIS_LINKS_QUEUE: ${REDIS_LINKS_QUEUE}
       # MiniIO environment variables 
       MINIO_ENDPOINT: minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
@@ -70,11 +77,11 @@ services:
     restart: always
     environment:
       # set values in the .env file 
-      POSTGRES_DB: ${POSTGRES_DB}              
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}              
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -91,9 +98,9 @@ services:
     ports:
       - 8080:8080
     environment:
-      POSTGRES_DB: ${POSTGRES_DB}              
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}              
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
   
   # 6. MINIO 
   # Object Storage for the large amounts of HTML Data expected
