@@ -1,13 +1,13 @@
 import asyncio
 import io
 import logging
-
 from urllib.parse import urljoin, urlparse
-
 import aiohttp
 import bs4
 from redis.asyncio import Redis
+from redis.exceptions import ResponseError
 from minio import Minio
+import json
 
 
 logger = logging.getLogger(__name__)
@@ -16,14 +16,15 @@ class ScraperWorker:
     """ ScaperWorker is at its core a resource handle for a number of IO-threads.
     These threads fetches URLs out of the Redis Queue, process the html and run an extraction scheme to find and store relevant new URLs to crawl.
     Start / Stop using the run() and stop() method.
-    Subclass and override _process_url() / _filter_urls() to customize per-site behavior. 
+    Subclass and override _process_html / _filter_urls to customize per-site behavior. 
     """
     
     def __init__(
         self, 
         minio_client: Minio, 
         minio_bucket: str, 
-        redis_client: Redis, 
+        redis_client: Redis,
+        hostname: str = "unknown",
         headers: dict = None
     ):     
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -31,6 +32,8 @@ class ScraperWorker:
         self.minio_client = minio_client
         self.minio_bucket = minio_bucket
         self.redis_client = redis_client
+        # hostname identifies the dockercontainer this scraper runs in to avoid conflicts with the redis queue
+        self.hostname = hostname 
         self._headers = headers
         
         # Event to manage the worker threads
@@ -39,7 +42,16 @@ class ScraperWorker:
         self.run_mutex = asyncio.Lock()
         
         # Session with custom header if a website requires identification for automated scapeing (wikipedia)
-        self.session = None
+        self.session = None  
+    
+    async def ensure_stream_group(self, redis: Redis, stream: str, group: str):
+        try:
+            # "$" = only new entries from now on; mkstream=True creates the stream if absent
+            await redis.xgroup_create(name=stream, groupname=group, id="$", mkstream=True)
+        except ResponseError as e:
+            if "BUSYGROUP" not in str(e):
+                logger.error(f"Redis stream {stream} for group {group} doesn't exist and could't be created.")
+                raise
     
     async def run(self, concurrency_limit: int = 10, rate_limit: int = 1) -> None:
         if self.run_mutex.locked():
@@ -48,6 +60,8 @@ class ScraperWorker:
         
         async with self.run_mutex:
             self.stop_event.clear()
+            # make sure the redis stream to get url data is active
+            await self.ensure_stream_group(self.redis_client, "crawl_queue", "crawlers")
             self.session = aiohttp.ClientSession(headers=self._headers)
             logger.info(f"Starting {concurrency_limit} many worker threads ...")
             try:
@@ -66,45 +80,62 @@ class ScraperWorker:
         self.stop_event.set()
         
     async def _worker_loop(self, worker_id: int, rate_limit: int) -> None:
-        logger.info(f"Worker {worker_id} started...")
+        consumer_name = f"{self.hostname}-worker-{worker_id}"
+        logger.debug(f"{consumer_name} started...")
         
         while not self.stop_event.is_set():
             try:
-                url = await self._pop_url()
-                if url is None:
+                popped = await self._pop_url(consumer_name)
+                if popped is None:
                     continue
-                logger.info(f"Worker {worker_id} processing: {url}")
-                await self._process_url(url)
+                msg_id, payload = popped
+                
+                logger.debug(f"{consumer_name} processing: {payload['url']}")
+                
+                await self._process_url(payload["id"], payload["url"])
+                # ack once the url was processed successfully, prevents lost urls
+                await self.redis_client.xack("crawl_queue", "crawlers", msg_id)
+                
             except Exception as e:
-                logger.error(f"Worker {worker_id} failed on {url}: {e}")
+                logger.error(f"{consumer_name} failed: {e}")
+                await asyncio.sleep(rate_limit) # delay also when an error is caught
                 continue
+            
             await asyncio.sleep(rate_limit) # basic per item rate limiting
     
-    async def _pop_url(self) -> str | None:
-        # timeout is needed so the stop signal is checked periodically even if the worker blocks on an empty queue
-        to_scrape = await self.redis_client.blpop("crawl_queue", timeout=1)
-        if not to_scrape:
+    async def _pop_url(self, consumer_name:str) -> tuple[str, dict] | None:   
+        """Returns (message_id, {"id":..., "url":...}) or None if nothing arrived."""
+        result = await self.redis_client.xreadgroup(
+            groupname="crawlers",
+            consumername=consumer_name,
+            streams={"crawl_queue": ">"},  # ">" = only entries never delivered to this group
+            count=1,
+            block=1000,  # ms timeout to stop this from blocking and not responding to a stop sigal
+        )
+        
+        if not result:
             return None
                         
-        _, url_bytes = to_scrape
-        return url_bytes.decode("utf-8")
+        _, entries = result[0]
+        msg_id, fields = entries[0]
+        return msg_id, {"id": int(fields['id']), "url": fields['url']}
     
-    async def _process_url(self, url) -> None:
-        """ Interface: Overwrite to specify a processing scheme. 
-        This default simply stores all the raw html in the redis bucket and runs the extraction pipline to find new urls to scape.
-        """
+    #TODO i need to use the url_id for both the mino saving and writeback into the redis queue, so the dispatcher can enter them into the DB
+    async def _process_url(self, url_id:int, url:str, ) -> None:
         async with self.session.get(url) as response:
             if response.status == 200:
-                # store the raw html
+                # url processing pipline
                 html = await response.text()
-                await self._save_to_minio(url, html)
+                processed_html = await self._process_html(html)
+                await self._save_to_minio(url, processed_html)
                                 
                 # url extraciton pipeline
                 raw_links = await asyncio.to_thread(self._extract_urls, html, url)
                 new_links = await self._filter_urls(raw_links)
                 
                 if new_links:
-                    await self.redis_client.rpush("unprocessed_links", *new_links)
+                    payload = json.dumps({"origin_id": url_id, "urls": list(new_links)})
+                    await self.redis_client.rpush("unprocessed_links", payload)
                                     
             else:
                 logger.error(f"Error {response.status} fetching {url}") 
@@ -126,7 +157,7 @@ class ScraperWorker:
             )
         
         await asyncio.to_thread(_upload)
-        logger.info(f"Saved in MinIO: {safe_filename}")
+        logger.debug(f"Saved in MinIO: {safe_filename}")
         
     def _extract_urls(self, html: str, base_url: str) -> set[str]:
         """ Parse HTML and extract all hyperlink URLs."""    
@@ -141,6 +172,10 @@ class ScraperWorker:
             links.add(href)
              
         return links
+    
+    async def _process_html(self, html:str) -> str:
+        """ Interface: Overwrite to set specific processing rules for the html data (e.g. filter for certain fields ...)"""
+        return html
     
     async def _filter_urls(self, urls: set[str]) ->set[str]:
         """ Interface: Overwrite to set specific crawl rules (e.g. certain top level domains, whitelist, blacklist ...)"""

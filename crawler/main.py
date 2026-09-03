@@ -5,7 +5,7 @@ import logging
 from redis.asyncio import Redis
 from minio import Minio
 
-from WikiScaper import WikiScraper 
+from WikiScraper import WikiScraper 
 
 # environment variables
 REDIS_HOST = os.environ.get('QUEUE_HOST', 'localhost')
@@ -13,9 +13,7 @@ MINIO_ENDPOINT = os.environ.get('MINIO_ENDPOINT', 'localhost:9000')
 MINIO_ACCESS = os.environ.get('MINIO_ACCESS_KEY', 'admin')
 MINIO_SECRET = os.environ.get('MINIO_SECRET_KEY', 'admin')
 MINIO_BUCKET = os.environ.get('MINIO_BUCKET', 'raw-html')
-
-# Wikipedia requires a descriptive user agent with contact information
-USER_AGENT = "WikiScraperBot/1.0 (bot@yourdomain.com)"
+CONTAINER_NAME = os.environ.get('HOSTNAME', 'unknown')
 
 # initialize MinIO client
 s3_client = Minio(
@@ -32,22 +30,14 @@ async def main():
         logging.error(f"MinIO bucket does not exist: {MINIO_BUCKET}")
         exit()
 
-    headers = {
-        "User-Agent": USER_AGENT
-    }
-
     scraper = WikiScraper(
         minio_client=s3_client,
         minio_bucket=MINIO_BUCKET,
         redis_client=redis_client,
         domain="books.toscrape.com",
-        
+        hostname=CONTAINER_NAME
     )
-
-    # Seed the queue for testing
-    await redis_client.lpush('crawl_queue', 'https://books.toscrape.com/')
     
-    # Run the scraper in an asyncio task so we can catch interrupts
     scraper_task = asyncio.create_task(scraper.run(concurrency_limit=1, rate_limit=1))
     
     try:
