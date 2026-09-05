@@ -1,5 +1,9 @@
 import os
 import logging
+import signal
+import asyncpg
+import asyncio
+from redis.asyncio import Redis
 
 from QueueManager import QueueManager
 
@@ -19,12 +23,57 @@ DB_USER = os.environ.get('DB_USER', 'postgres')
 DB_PASSWORD = os.environ.get('DB_PASSWORD', 'postgres')
 DB_NAME = os.environ.get('DB_NAME', 'scraped_data')
 
+BATCH_SIZE=1
 
 
 async def main():
-    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')        
-    pass
+    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+    logging.info(
+        f"Config: DB={DB_HOST}:{DB_PORT}/{DB_NAME} user={DB_USER} | "
+        f"Redis={REDIS_HOST} stream={REDIS_CRAWL_STREAM} group={REDIS_CRAWL_GROUP} links_queue={REDIS_LINKS_QUEUE} | "
+        f"batch_size={BATCH_SIZE}"
+    )
+
+    redis_client = Redis(
+        host=REDIS_HOST,
+        decode_responses=True
+    )
+        
+    pg_pool = await asyncpg.create_pool(
+        host=DB_HOST,
+        port=DB_PORT,
+        user=DB_USER,
+        password=DB_PASSWORD,
+        database=DB_NAME,
+        min_size=BATCH_SIZE,
+        max_size=BATCH_SIZE,
+    )
+    
+    queue_manager = QueueManager(
+        redis_client=redis_client,
+        pg_pool=pg_pool,
+        crawl_stream=REDIS_CRAWL_STREAM,
+        crawl_group=REDIS_CRAWL_GROUP,
+        links_queue=REDIS_LINKS_QUEUE,
+        batch_size=BATCH_SIZE
+    )
+    
+    queue_task = asyncio.create_task(queue_manager.run())
+    
+    def _handle_shutdown_signal():
+        logging.info("Shutdown signal received, stopping scraper...")
+        queue_manager.stop()
+    
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, _handle_shutdown_signal)
+    
+    try:
+        await queue_task
+    finally:
+        await redis_client.aclose()
+        await pg_pool.close()
 
 
 if __name__ == "__main__":
-    pass
+    asyncio.run(main())

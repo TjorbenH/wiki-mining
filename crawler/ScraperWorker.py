@@ -25,7 +25,7 @@ class DataBaseClient:
     async def mark_in_progress(self, url_id: int) -> None:
         async with self.pg_pool.acquire() as conn:
             await conn.execute(
-                "UPDATE RawData SET status = 'in_progress', updated_at = now() WHERE id = $1;",
+                "UPDATE RawData SET scraping_status = 'in_progress', updated_at = now() WHERE id = $1;",
                 url_id,
             )
  
@@ -34,7 +34,7 @@ class DataBaseClient:
             await conn.execute(
                 """
                 UPDATE RawData
-                SET storage_key = $1, content_hash = $2, status = 'done', updated_at = now()
+                SET storage_key = $1, content_hash = $2, scraping_status = 'done', updated_at = now()
                 WHERE id = $3;
                 """,
                 storage_key, content_hash, url_id,
@@ -45,7 +45,7 @@ class DataBaseClient:
             await conn.execute(
                 """
                 UPDATE RawData
-                SET status = 'failed', attempts = attempts + 1, updated_at = now()
+                SET scraping_status = 'failed', attempts = attempts + 1, updated_at = now()
                 WHERE id = $1;
                 """,
                 url_id,
@@ -128,28 +128,31 @@ class ScraperWorker:
     async def _worker_loop(self, worker_id: int, rate_limit: int) -> None:
         consumer_name = f"{self.hostname}-worker-{worker_id}"
         logger.debug(f"{consumer_name} started...")
-        
+
         while not self.stop_event.is_set():
+            payload = None
             try:
                 popped = await self._pop_url(consumer_name)
                 if popped is None:
                     continue
                 msg_id, payload = popped
-                
+
                 logger.debug(f"{consumer_name} processing: {payload['url']}")
-                
+
                 await self._process_url(payload["id"], payload["url"])
                 # ack once the url was processed successfully, prevents lost urls
                 await self.redis_client.xack(self.crawl_stream, self.crawl_group, msg_id)
-                
+
             except Exception as e:
-                logger.error(f"{consumer_name} failed: {e}")
+                url = payload["url"] if payload else "unknown (failed before/during pop)"
+                logger.exception(f"{consumer_name} failed while processing {url!r}")
+
                 await asyncio.sleep(rate_limit) # delay also when an error is caught
                 continue
-            
+
             await asyncio.sleep(rate_limit) # basic per item rate limiting
     
-    async def _pop_url(self, consumer_name:str) -> tuple[str, dict] | None:   
+    async def _pop_url(self, consumer_name:str) -> tuple[str, dict] | None:
         """Returns (message_id, {"id":..., "url":...}) or None if nothing arrived."""
         result = await self.redis_client.xreadgroup(
             groupname=self.crawl_group,
@@ -158,42 +161,52 @@ class ScraperWorker:
             count=1,
             block=1000,  # ms timeout to stop this from blocking and not responding to a stop sigal
         )
-        
+
         if not result:
             return None
-                        
+
         _, entries = result[0]
         msg_id, fields = entries[0]
-        return msg_id, {"id": int(fields['id']), "url": fields['url']}
+        try:
+            return msg_id, {"id": int(fields["id"]), "url": fields["url"]}
+        except (KeyError, ValueError) as e:
+            logger.error(f"Malformed stream entry {msg_id!r} fields={fields!r}: {e}. Acking to prevent redelivery.")
+            await self.redis_client.xack(self.crawl_stream, self.crawl_group, msg_id)
+            return None
     
-    async def _process_url(self, url_id:int, url:str, ) -> None:
+    async def _process_url(self, url_id:int, url:str) -> None:
         await self.database.mark_in_progress(url_id)
-        
+        stage = "http_fetch"
         try:
             async with self.session.get(url) as response:
                 if response.status != 200:
-                    logger.error(f"Error {response.status} fetching {url}")
+                    logger.error(f"HTTP {response.status} for {url} (id={url_id})")
                     await self.database.mark_failed(url_id)
                     return
-                
-                # url processing pipline
+
+                stage = "html_read"
                 html = await response.text()
+                stage = "html_process"
                 processed_html = await self._process_html(html)
                 html_bytes = processed_html.encode("utf-8")
                 content_hash = hashlib.sha256(html_bytes).hexdigest()
-                
+
+                stage = "minio_upload"
                 storage_key = await self._save_to_minio(url, html_bytes)
+                stage = "db_mark_done"
                 await self.database.mark_done(url_id, storage_key, content_hash)
-                                    
-                # url extraciton pipeline
+
+                stage = "url_extraction"
                 raw_links = await asyncio.to_thread(self._extract_urls, html, url)
                 new_links = await self._filter_urls(raw_links)
-                    
+
+                stage = "redis_push"
                 if new_links:
                     payload = json.dumps({"origin_id": url_id, "urls": list(new_links)})
                     await self.redis_client.rpush(self.links_queue, payload)
-                                        
+
         except Exception:
+            logger.error(f"[{stage}] failed for {url} (id={url_id})")
             await self.database.mark_failed(url_id)
             raise
         

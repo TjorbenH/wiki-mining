@@ -43,3 +43,6 @@ build/
 adminer-config.json
 *.sql.bak
 *.dump
+
+# agentic coding
+CLAUDE.md

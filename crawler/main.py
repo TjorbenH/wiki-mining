@@ -1,7 +1,7 @@
 import asyncio
 import os
 import logging
-
+import signal
 import asyncpg
 from redis.asyncio import Redis
 from minio import Minio
@@ -33,19 +33,27 @@ RATE_LIMIT = 1
 
 
 
-# initialize MinIO client
-s3_client = Minio(
-    MINIO_ENDPOINT,
-    access_key=MINIO_ACCESS,
-    secret_key=MINIO_SECRET,
-    secure=False
-)
-
 async def main():
     logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+    logging.info(
+        f"Config: DB={DB_HOST}:{DB_PORT}/{DB_NAME} user={DB_USER} | "
+        f"Redis={REDIS_HOST} stream={REDIS_CRAWL_STREAM} group={REDIS_CRAWL_GROUP} links_queue={REDIS_LINKS_QUEUE} | "
+        f"MinIO={MINIO_ENDPOINT} bucket={MINIO_BUCKET} | "
+        f"concurrency={CONCURRENCY_LIMIT} rate_limit={RATE_LIMIT}s"
+    )
 
-    redis_client = Redis(host=REDIS_HOST)
+    redis_client = Redis(
+        host=REDIS_HOST,
+        decode_responses=True
+    )
     
+    s3_client = Minio(
+        MINIO_ENDPOINT,
+        access_key=MINIO_ACCESS,
+        secret_key=MINIO_SECRET,
+        secure=False
+    )
+
     if not s3_client.bucket_exists(MINIO_BUCKET):
         logging.error(f"MinIO bucket does not exist: {MINIO_BUCKET}")
         exit()
@@ -60,7 +68,6 @@ async def main():
         max_size=CONCURRENCY_LIMIT,
     )
 
-
     scraper = WikiScraper(
         minio_client=s3_client,
         minio_bucket=MINIO_BUCKET,
@@ -74,12 +81,16 @@ async def main():
     )
     
     scraper_task = asyncio.create_task(scraper.run(concurrency_limit=CONCURRENCY_LIMIT, rate_limit=RATE_LIMIT))
+        
+    def _handle_shutdown_signal():
+        logging.info("Shutdown signal received, stopping scraper...")
+        scraper.stop()
+    
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, _handle_shutdown_signal)
     
     try:
-        await scraper_task
-    except asyncio.CancelledError:
-        logging.info("Main task cancelled, issuing stop command...")
-        scraper.stop()
         await scraper_task
     finally:
         await redis_client.aclose()
