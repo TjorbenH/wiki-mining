@@ -214,7 +214,8 @@ class ScraperWorker:
         """Uploads the given bytes to MinIO and returns the storage_key (object name) they were stored under.
         """
         parsed = urlparse(url)
-        storage_key = f"{parsed.netloc}{parsed.path}".strip("/").replace("/", "_") + ".html"
+        url_hash = hashlib.sha256(url.encode()).hexdigest()[:12]
+        storage_key = f"{parsed.netloc}{parsed.path}".strip("/").replace("/", "_") + f"_{url_hash}.html"
         
         data_stream = io.BytesIO(html_bytes)
         

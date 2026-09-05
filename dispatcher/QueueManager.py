@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+from urllib.parse import urlparse, urlunparse, urlencode, parse_qsl
 
 import asyncpg
 from redis.asyncio import Redis
@@ -89,6 +90,17 @@ class QueueManager:
         logger.info("Received stop signal ...")
         self.stop_event.set()
         
+    def _canonicalize(self, url: str) -> str:
+        """Normalize a URL so semantically identical URLs map to the same string"""
+        try:
+            p = urlparse(url)
+            path = p.path.rstrip("/") or "/"
+            query = urlencode(sorted(parse_qsl(p.query)))
+            return urlunparse((p.scheme.lower(), p.netloc.lower(), path, "", query, ""))
+        except Exception:
+            return url
+
+        
     async def _drain_batch(self) -> list[dict]:
         """Atomically pop up to batch_size raw JSON payloads off the list."""
         async with self.redis_client.pipeline(transaction=True) as pipe:
@@ -109,8 +121,8 @@ class QueueManager:
         if not batch:
             return 0
 
-        # flatten origin_id:[outgoing_links] into pairs of (origin_id, link)
-        pairs: list[tuple[int, str]] = [(entry["origin_id"], url) for entry in batch for url in entry.get("urls", [])]
+        # flatten origin_id:[outgoing_links] into pairs of (origin_id, link), canonicalizing each URL
+        pairs: list[tuple[int, str]] = [(entry["origin_id"], self._canonicalize(url)) for entry in batch for url in entry.get("urls", [])]
         if not pairs:
             logger.warning(f"Drained {len(batch)} entries from {self.links_queue} but all had empty URL lists")
             return 0

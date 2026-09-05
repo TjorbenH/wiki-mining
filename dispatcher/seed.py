@@ -6,7 +6,7 @@ import asyncio
 import os
 import sys
 import logging
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse, urlencode, parse_qsl
 
 import asyncpg
 from redis.asyncio import Redis
@@ -64,10 +64,17 @@ async def seed(urls: list[str]) -> None:
         await pg_pool.close()
 
 
+def _canonicalize(url: str) -> str:
+    p = urlparse(url)
+    path = p.path.rstrip("/") or "/"
+    query = urlencode(sorted(parse_qsl(p.query)))
+    return urlunparse((p.scheme.lower(), p.netloc.lower(), path, "", query, ""))
+
+
 if __name__ == "__main__":
     urls = sys.argv[1:]
     if not urls:
         print("Usage: python seed.py <url1> <url2> ...")
         sys.exit(1)
-    urls = [u if urlparse(u).scheme else f"http://{u}" for u in urls]
+    urls = [_canonicalize(u if urlparse(u).scheme else f"http://{u}") for u in urls]
     asyncio.run(seed(urls))
