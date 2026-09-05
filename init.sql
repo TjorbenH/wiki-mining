@@ -17,9 +17,13 @@ CREATE TABLE IF NOT EXISTS Links (
     destination_id BIGINT NOT NULL,
     PRIMARY KEY (origin_id, destination_id),
     CONSTRAINT fk_origin_rawdata
-        FOREIGN KEY (origin_id)    
+        FOREIGN KEY (origin_id)
+        REFERENCES RawData(id)
+        ON DELETE CASCADE,
+    CONSTRAINT fk_destination_rawdata
+        FOREIGN KEY (destination_id)
         REFERENCES RawData(id)
         ON DELETE CASCADE
 );
 
--- CREATE INDEX idx_rawdata_status_updated ON RawData (status, updated_at); -- Index to allow for a timed sweep of stale entries
+CREATE INDEX idx_rawdata_status_updated ON RawData (scraping_status, updated_at);
