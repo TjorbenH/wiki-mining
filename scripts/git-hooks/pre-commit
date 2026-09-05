@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Pre-commit sanity checks: Python syntax + docker-compose wiring.
+# Not auto-installed by git (.git/hooks isn't version-controlled) — reinstall after a fresh clone with:
+#   cp scripts/git-hooks/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+set -euo pipefail
+
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+
+echo "pre-commit: checking Python syntax..."
+py_files=$(find crawler dispatcher -name '*.py')
+python3 -m py_compile $py_files
+
+echo "pre-commit: validating docker-compose config..."
+docker compose config > /dev/null
+
+echo "pre-commit: checks passed."
