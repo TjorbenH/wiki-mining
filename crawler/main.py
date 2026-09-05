@@ -8,6 +8,8 @@ from minio import Minio
 
 from WikiScraper import WikiScraper 
 
+asdfasdf
+
 # environment variables
 MINIO_ENDPOINT = os.environ.get('MINIO_ENDPOINT', 'localhost:9000')
 MINIO_ACCESS = os.environ.get('MINIO_ACCESS_KEY', 'admin')
@@ -28,13 +30,17 @@ DB_USER = os.environ.get('DB_USER', 'postgres')
 DB_PASSWORD = os.environ.get('DB_PASSWORD', 'postgres')
 DB_NAME = os.environ.get('DB_NAME', 'scraped_data')
 
-CONCURRENCY_LIMIT = 1
-RATE_LIMIT = 1
+CONCURRENCY_LIMIT = int(os.environ.get('CONCURRENCY_LIMIT', '4'))
+RATE_LIMIT = float(os.environ.get('RATE_LIMIT', '0.5'))
 
+_LOG_LEVEL_NAME = os.environ.get('LOG_LEVEL', 'INFO').upper()
+LOG_LEVEL = getattr(logging, _LOG_LEVEL_NAME, logging.INFO)
 
 
 async def main():
-    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+    logging.basicConfig(level=LOG_LEVEL, format='%(asctime)s - %(levelname)s - %(message)s')
+    if not isinstance(getattr(logging, _LOG_LEVEL_NAME, None), int):
+        logging.warning(f"Unknown LOG_LEVEL={_LOG_LEVEL_NAME!r}, falling back to INFO")
     logging.info(
         f"Config: DB={DB_HOST}:{DB_PORT}/{DB_NAME} user={DB_USER} | "
         f"Redis={REDIS_HOST} stream={REDIS_CRAWL_STREAM} group={REDIS_CRAWL_GROUP} links_queue={REDIS_LINKS_QUEUE} | "

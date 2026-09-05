@@ -11,6 +11,14 @@ echo "pre-commit: checking Python syntax..."
 py_files=$(find crawler dispatcher -name '*.py')
 python3 -m py_compile $py_files
 
+echo "pre-commit: linting for undefined names / unused imports..."
+if [ -x .venv/bin/ruff ]; then
+    .venv/bin/ruff check $py_files
+else
+    echo "pre-commit: WARNING - .venv/bin/ruff not found, skipping lint (py_compile alone" \
+         "won't catch bugs like an undefined name). One-time setup: see README.md Development section."
+fi
+
 echo "pre-commit: validating docker-compose config..."
 docker compose config > /dev/null
 

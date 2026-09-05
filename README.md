@@ -44,7 +44,7 @@ docker compose up -d
 After any code change:
 
 ```bash
-docker compose down -v --remove-orphans
+docker compose down
 docker compose build --no-cache
 docker compose up -d
 ```
@@ -71,6 +71,21 @@ Follow logs:
 ```bash
 docker compose logs -f
 docker compose logs -f crawler
+```
+
+## Development
+
+A pre-commit hook (`scripts/git-hooks/pre-commit`) checks Python syntax and lints for real bugs (undefined names, unused imports/vars — see `ruff.toml`) before every commit. It's not auto-installed by git, so install it once per clone:
+
+```bash
+cp scripts/git-hooks/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+```
+
+The hook's linter (`ruff`) runs from a project-local virtual environment, not your global Python install:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install ruff==0.16.6
 ```
 
 ## Extending the crawler

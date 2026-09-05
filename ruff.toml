@@ -1,0 +1,6 @@
+# Scoped to Pyflakes-equivalent checks (undefined names, unused imports/vars,
+# redefinitions) used by the pre-commit hook. Deliberately excludes style-only
+# rules (import sorting, logging conventions, etc.) so it flags real bugs
+# without blocking commits over pre-existing style choices.
+[lint]
+select = ["F"]
