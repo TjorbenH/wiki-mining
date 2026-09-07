@@ -14,7 +14,8 @@ CONTAINER_NAME = os.environ.get('HOSTNAME', 'unknown')
 REDIS_HOST = os.environ.get('REDIS_HOST', 'localhost')
 REDIS_CRAWL_STREAM=os.environ.get('REDIS_CRAWL_STREAM', 'crawl_stream')
 REDIS_CRAWL_GROUP=os.environ.get('REDIS_CRAWL_GROUP', 'crawlers')
-REDIS_LINKS_QUEUE=os.environ.get('REDIS_LINKS_QUEUE', 'unprocessed_links')
+REDIS_DISPATCHER_STREAM=os.environ.get('REDIS_DISPATCHER_STREAM', 'unprocessed_links')
+REDIS_DISPATCHER_GROUP=os.environ.get('REDIS_DISPATCHER_GROUP', 'dispatchers')
 
 
 DB_HOST = os.environ.get('DB_HOST', 'localhost')
@@ -38,7 +39,7 @@ async def main():
         logging.warning(f"Unknown LOG_LEVEL={_LOG_LEVEL_NAME!r}, falling back to INFO")
     logging.info(
         f"Config: DB={DB_HOST}:{DB_PORT}/{DB_NAME} user={DB_USER} | "
-        f"Redis={REDIS_HOST} stream={REDIS_CRAWL_STREAM} group={REDIS_CRAWL_GROUP} links_queue={REDIS_LINKS_QUEUE} | "
+        f"Redis={REDIS_HOST} crawl_stream={REDIS_CRAWL_STREAM} crawl_group={REDIS_CRAWL_GROUP} dispatcher_stream={REDIS_DISPATCHER_STREAM} dispatcher_group={REDIS_DISPATCHER_GROUP} | "
         f"batch_size={BATCH_SIZE}"
     )
 
@@ -59,10 +60,12 @@ async def main():
     
     queue_manager = QueueManager(
         redis_client=redis_client,
-        pg_pool=pg_pool,
         crawl_stream=REDIS_CRAWL_STREAM,
         crawl_group=REDIS_CRAWL_GROUP,
-        links_queue=REDIS_LINKS_QUEUE,
+        dispatcher_stream=REDIS_DISPATCHER_STREAM,
+        dispatcher_group=REDIS_DISPATCHER_GROUP,
+        pg_pool=pg_pool,
+        hostname=CONTAINER_NAME,
         batch_size=BATCH_SIZE
     )
     

@@ -29,25 +29,35 @@ class ScraperWorker:
         minio_client: Minio, 
         minio_bucket: str, 
         redis_client: Redis,
-        pg_pool: asyncpg.Pool,
-        hostname: str,
         crawl_stream: str,
         crawl_group: str,
-        links_queue: str,
+        dispatcher_stream: str,
+        dispatcher_group: str,
+        pg_pool: asyncpg.Pool,
+        hostname: str,
         headers: dict = None,
         minio_upload_attempts: int = 3,
         minio_retry_backoff_seconds: float = 0.5
     ):  
         self.minio_client = minio_client
         self.minio_bucket = minio_bucket
+        
         self.redis_client = redis_client
-        self.database = DataBaseClient(pg_pool)
-        # hostname identifies the dockercontainer this scraper runs in to avoid conflicts with the redis queue
-        self.hostname = hostname
         self.crawl_stream = crawl_stream
         self.crawl_group = crawl_group 
-        self.links_queue = links_queue
+        self.dispatcher_stream = dispatcher_stream
+        self.dispatcher_group = dispatcher_group
+        
+        self.database = DataBaseClient(pg_pool)
+        
+        # hostname identifies the dockercontainer this scraper runs in to avoid conflicts with the redis queue
+        self.hostname = hostname
+        
         self._headers = headers
+        
+        # configs for the minio upload retries
+        self.minio_upload_attempts = minio_upload_attempts
+        self.minio_retry_backoff_seconds = minio_retry_backoff_seconds
         
         # Event to manage the worker threads
         self.stop_event = asyncio.Event()
@@ -56,19 +66,14 @@ class ScraperWorker:
         
         # Session with custom header if a website requires identification for automated scapeing (wikipedia)
         self.session = None  
-        
-        # configs for the minio upload retries
-        self.minio_upload_attempts = minio_upload_attempts
-        self.minio_retry_backoff_seconds = minio_retry_backoff_seconds
     
-    async def _ensure_stream_group(self):
-        """ Make sure the needed redis crawl_stream is active and create it if needed."""
+    async def _ensure_stream_group(self, stream, group) -> None:
         try:
             # "$" = only new entries from now on; mkstream=True creates the stream if absent
-            await self.redis_client.xgroup_create(name=self.crawl_stream, groupname=self.crawl_group, id="$", mkstream=True)
+            await self.redis_client.xgroup_create(name=stream, groupname=group, id="$", mkstream=True)
         except ResponseError as e:
             if "BUSYGROUP" not in str(e):
-                logger.error(f"Redis stream {self.crawl_stream} for group {self.crawl_group} doesn't exist and could't be created.")
+                logger.error(f"Stream {stream} for group {group} doesn't exist and couldn't be created.")
                 raise
     
     async def run(self, concurrency_limit: int = 10, rate_limit: int = 1) -> None:
@@ -79,8 +84,9 @@ class ScraperWorker:
         
         async with self.run_mutex:
             self.stop_event.clear()
-            # make sure the redis stream to get url data is active
-            await self._ensure_stream_group()
+            # ensure communication with the dispatcher is possible
+            await self._ensure_stream_group(stream=self.crawl_stream, group=self.crawl_group)
+            await self._ensure_stream_group(stream=self.dispatcher_stream, group=self.dispatcher_group)
             self.session = aiohttp.ClientSession(headers=self._headers)
             logger.info(f"Starting {concurrency_limit} worker threads ...")
             try:
@@ -197,8 +203,7 @@ class ScraperWorker:
 
         try:
             if new_links:
-                payload = json.dumps({"origin_id": url_id, "urls": list(new_links)})
-                await self.redis_client.rpush(self.links_queue, payload)
+                await self.redis_client.xadd(self.dispatcher_stream, {"origin_id": str(url_id), "urls": json.dumps(list(new_links))})
         except Exception:
             await fail_stage(url_id, url, "redis_writeback")
             raise

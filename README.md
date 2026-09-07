@@ -9,7 +9,7 @@ Two Python services coordinate over Redis and persist to PostgreSQL and MinIO:
 - **Dispatcher** deduplicates discovered URLs against the DB and queues new ones for crawling
 - **Crawler** fetches pages, saves raw HTML to MinIO, and pushes outgoing links back to the dispatcher
 
-Redis carries two channels: `crawl_stream` (a Redis Stream with consumer groups, crawler → dispatcher → crawler) and `unprocessed_links` (a plain list, crawler → dispatcher).
+Redis carries two channels, both Redis Streams with consumer groups: `crawl_stream` (dispatcher → crawler) and `unprocessed_links` (crawler → dispatcher).
 
 Admin interfaces: **Adminer** at `localhost:8080` (PostgreSQL), **MinIO console** at `localhost:9001`.
 
@@ -28,7 +28,8 @@ REDIS_HOST=queue
 REDIS_PORT=6379
 REDIS_CRAWL_STREAM=crawl_stream
 REDIS_CRAWL_GROUP=crawlers
-REDIS_LINKS_QUEUE=unprocessed_links
+REDIS_DISPATCHER_STREAM=unprocessed_links
+REDIS_DISPATCHER_GROUP=dispatchers
 
 MINIO_ROOT_USER=
 MINIO_ROOT_PASSWORD=

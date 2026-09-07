@@ -6,9 +6,35 @@ class WikiScraper(ScraperWorker):
     """ Instantiation of a Scraper Worker for Wiki-Style Pages
     In particular only links staying on the wiki domain will be scraped, we don't want the WWW.
     """
+    
     @override
-    def __init__(self, minio_client, minio_bucket, redis_client, pg_pool, hostname, crawl_stream, crawl_group, links_queue, domain, headers = None):
-        super().__init__(minio_client, minio_bucket, redis_client, pg_pool, hostname, crawl_stream, crawl_group, links_queue, headers)
+    def __init__(
+        self, 
+        minio_client, 
+        minio_bucket, 
+        redis_client, 
+        crawl_stream, 
+        crawl_group, 
+        dispatcher_stream, 
+        dispatcher_group, 
+        pg_pool, 
+        hostname, 
+        domain, 
+        headers = None, 
+        minio_upload_attempts = 3, 
+        minio_retry_backoff_seconds = 0.5
+        ):
+        super().__init__(minio_client, 
+                         minio_bucket, 
+                         redis_client, 
+                         crawl_stream, 
+                         crawl_group, 
+                         dispatcher_stream, 
+                         dispatcher_group, 
+                         pg_pool, hostname, 
+                         headers, 
+                         minio_upload_attempts, 
+                         minio_retry_backoff_seconds)
         self.domain = domain.lower().strip()
 
     @override
