@@ -1,5 +1,0 @@
-services:
-  dispatcher:
-    command: sleep infinity
-  crawler:
-    command: sleep infinity
