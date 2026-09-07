@@ -120,3 +120,7 @@ Subclass `ScraperWorker` and override either or both hooks, then point `crawler/
 - `_filter_urls(urls: set[str]) -> set[str]`: restrict which discovered URLs are forwarded to the dispatcher
 
 `WikiScraper` is the current implementation; it filters crawling to a single domain.
+
+## License
+
+[GNU GPLv3](LICENSE)
