@@ -8,8 +8,6 @@ from minio import Minio
 
 from WikiScraper import WikiScraper 
 
-asdfasdf
-
 # environment variables
 MINIO_ENDPOINT = os.environ.get('MINIO_ENDPOINT', 'localhost:9000')
 MINIO_ACCESS = os.environ.get('MINIO_ACCESS_KEY', 'admin')

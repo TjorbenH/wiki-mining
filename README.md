@@ -41,10 +41,19 @@ Then start all services:
 docker compose up -d
 ```
 
+To actively log during the session (optional but recommended):
+```bash
+mkdir -p logs
+ts=$(date +%Y%m%d-%H%M%S)
+docker compose logs -f --no-color -t dispatcher > "logs/dispatcher-$ts.log" &
+docker compose logs -f --no-color -t crawler   > "logs/crawler-$ts.log"   &
+```
+Stop them once the run is done with `kill %1 %2`.
+
 After any code change:
 
 ```bash
-docker compose down
+docker compose down [-v --remove-orphans]
 docker compose build --no-cache
 docker compose up -d
 ```
