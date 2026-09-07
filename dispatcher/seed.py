@@ -11,7 +11,11 @@ from urllib.parse import urlparse, urlunparse, urlencode, parse_qsl
 import asyncpg
 from redis.asyncio import Redis
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+_LOG_LEVEL_NAME = os.environ.get('LOG_LEVEL', 'INFO').upper()
+LOG_LEVEL = getattr(logging, _LOG_LEVEL_NAME, logging.INFO)
+logging.basicConfig(level=LOG_LEVEL, format='%(asctime)s - %(levelname)s - %(message)s')
+if not isinstance(getattr(logging, _LOG_LEVEL_NAME, None), int):
+    logging.warning(f"Unknown LOG_LEVEL={_LOG_LEVEL_NAME!r}, falling back to INFO")
 
 REDIS_HOST = os.environ.get('REDIS_HOST', 'localhost')
 REDIS_CRAWL_STREAM=os.environ.get('REDIS_CRAWL_STREAM', 'crawl_stream')

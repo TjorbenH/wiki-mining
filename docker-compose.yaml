@@ -24,6 +24,9 @@ services:
       REDIS_CRAWL_STREAM: ${REDIS_CRAWL_STREAM}
       REDIS_CRAWL_GROUP: ${REDIS_CRAWL_GROUP}
       REDIS_LINKS_QUEUE: ${REDIS_LINKS_QUEUE}
+      # tunables
+      BATCH_SIZE: ${BATCH_SIZE}
+      LOG_LEVEL: ${LOG_LEVEL}
 
 
   # 2. CRAWLER
@@ -55,7 +58,11 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
       MINIO_BUCKET: ${MINIO_BUCKET}
-  
+      # tunables
+      CONCURRENCY_LIMIT: ${CONCURRENCY_LIMIT}
+      RATE_LIMIT: ${RATE_LIMIT}
+      LOG_LEVEL: ${LOG_LEVEL}
+
   # 3. MESSAGE QUEUE
   # coordinate and synchonize the crawlers on a set of urls
   queue:

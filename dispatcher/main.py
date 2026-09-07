@@ -23,11 +23,19 @@ DB_USER = os.environ.get('DB_USER', 'postgres')
 DB_PASSWORD = os.environ.get('DB_PASSWORD', 'postgres')
 DB_NAME = os.environ.get('DB_NAME', 'scraped_data')
 
-BATCH_SIZE=1
+BATCH_SIZE = int(os.environ.get('BATCH_SIZE', '50'))
+
+DB_POOL_MIN_SIZE = 1
+DB_POOL_MAX_SIZE = 5
+
+_LOG_LEVEL_NAME = os.environ.get('LOG_LEVEL', 'INFO').upper()
+LOG_LEVEL = getattr(logging, _LOG_LEVEL_NAME, logging.INFO)
 
 
 async def main():
-    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+    logging.basicConfig(level=LOG_LEVEL, format='%(asctime)s - %(levelname)s - %(message)s')
+    if not isinstance(getattr(logging, _LOG_LEVEL_NAME, None), int):
+        logging.warning(f"Unknown LOG_LEVEL={_LOG_LEVEL_NAME!r}, falling back to INFO")
     logging.info(
         f"Config: DB={DB_HOST}:{DB_PORT}/{DB_NAME} user={DB_USER} | "
         f"Redis={REDIS_HOST} stream={REDIS_CRAWL_STREAM} group={REDIS_CRAWL_GROUP} links_queue={REDIS_LINKS_QUEUE} | "
@@ -45,8 +53,8 @@ async def main():
         user=DB_USER,
         password=DB_PASSWORD,
         database=DB_NAME,
-        min_size=BATCH_SIZE,
-        max_size=BATCH_SIZE,
+        min_size=DB_POOL_MIN_SIZE,
+        max_size=DB_POOL_MAX_SIZE,
     )
     
     queue_manager = QueueManager(

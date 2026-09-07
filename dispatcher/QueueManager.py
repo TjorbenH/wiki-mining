@@ -47,7 +47,7 @@ class QueueManager:
         # Mutex to prevent calling run multiple times
         self.run_mutex = asyncio.Lock()
 
-    async def ensure_stream_group(self) -> None:
+    async def _ensure_stream_group(self) -> None:
         try:
             # "$" = only new entries from now on; mkstream=True creates the stream if absent
             await self.redis_client.xgroup_create(name=self.crawl_stream, groupname=self.crawl_group, id="$", mkstream=True)
@@ -57,6 +57,7 @@ class QueueManager:
                 raise
 
     async def run(self, poll_interval: float = 1.0) -> None:
+        """ Start the Queue Manager with a delay of <poll_interval> if the last batch was empty."""
         if self.run_mutex.locked():
             logger.error("QueueManager is already running. No more run() calls permitted!")
             return
@@ -64,7 +65,7 @@ class QueueManager:
         async with self.run_mutex:
             self.stop_event.clear()
             # might be started before any crawlers so needs to ensure the group is active as well
-            await self.ensure_stream_group()
+            await self._ensure_stream_group()
             logger.info("QueueManager started.")
 
             while not self.stop_event.is_set():
@@ -84,6 +85,7 @@ class QueueManager:
             logger.info("QueueManager stopped.")
 
     def stop(self) -> None:
+        """Safely stop the Queue Manager."""
         if not self.run_mutex.locked():
             logger.error("Received stop signal without QueueManager running!")
             return
@@ -127,7 +129,8 @@ class QueueManager:
             logger.warning(f"Drained {len(batch)} entries from {self.links_queue} but all had empty URL lists")
             return 0
 
-        urls = [url for _, url in pairs]
+        # dedupe if links were discovered from multiple origin ids
+        urls = list(dict.fromkeys(url for _, url in pairs))
         origin_ids_in_batch = list({o for o, _ in pairs})
 
         try:
