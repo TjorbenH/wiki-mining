@@ -192,7 +192,7 @@ class ScraperWorker:
             raw_links = await asyncio.to_thread(self._extract_urls, html, url)
             new_links = await self._filter_urls(raw_links)
         except Exception:
-            await self._fail_stage(url_id, url, "url_extraction")
+            await fail_stage(url_id, url, "url_extraction")
             raise
 
         try:
@@ -200,7 +200,7 @@ class ScraperWorker:
                 payload = json.dumps({"origin_id": url_id, "urls": list(new_links)})
                 await self.redis_client.rpush(self.links_queue, payload)
         except Exception:
-            await self._fail_stage(url_id, url, "redis_writeback")
+            await fail_stage(url_id, url, "redis_writeback")
             raise
 
     async def _save_to_minio(self, url: str, html_bytes: bytes) -> str:
