@@ -13,7 +13,7 @@ Redis carries two channels: `crawl_stream` (a Redis Stream with consumer groups,
 
 Admin interfaces: **Adminer** at `localhost:8080` (PostgreSQL), **MinIO console** at `localhost:9001`.
 
-## Setup
+## Usage
 
 Create a `.env` file in the project root (it is gitignored) with the following variables:
 
@@ -35,7 +35,24 @@ MINIO_ROOT_PASSWORD=
 MINIO_BUCKET=raw-html
 ```
 
-Then start all services:
+### Quick start (run.sh)
+
+`run.sh` wraps the manual steps below into one command:
+
+```bash
+./run.sh --help
+./run.sh --log-level DEBUG --logs --seed http://books.toscrape.com
+```
+
+- `-l, --log-level LEVEL` override `LOG_LEVEL` for this run only, without editing `.env`
+- `-s, --seed URL [URL ...]` seed one or more starting URLs once the stack is up
+- `--logs` / `--no-logs` toggle the on-the-fly log capture described below (off by default)
+
+Note: on a first-ever startup (empty volumes), `docker compose up -d` can take a while. `run.sh`'s `--seed` retry loop only waits ~10 seconds for the dispatcher and might time out on first startup. If that happens, just re-run `./run.sh --seed <url>` once `docker compose ps` shows everything healthy.
+
+### Manual Start
+
+Start all services with:
 
 ```bash
 docker compose up -d
@@ -45,8 +62,8 @@ To actively log during the session (optional but recommended):
 ```bash
 mkdir -p logs
 ts=$(date +%Y%m%d-%H%M%S)
-docker compose logs -f --no-color -t dispatcher > "logs/dispatcher-$ts.log" &
-docker compose logs -f --no-color -t crawler   > "logs/crawler-$ts.log"   &
+docker compose logs -f --no-color dispatcher > "logs/dispatcher-$ts.log" &
+docker compose logs -f --no-color crawler   > "logs/crawler-$ts.log"   &
 ```
 Stop them once the run is done with `kill %1 %2`.
 
@@ -57,8 +74,6 @@ docker compose down [-v --remove-orphans]
 docker compose build --no-cache
 docker compose up -d
 ```
-
-## Usage
 
 Seed one or more starting URLs (bare hostnames are accepted):
 
@@ -82,9 +97,9 @@ docker compose logs -f
 docker compose logs -f crawler
 ```
 
-## Development
+## Contributing
 
-A pre-commit hook (`scripts/git-hooks/pre-commit`) checks Python syntax and lints for real bugs (undefined names, unused imports/vars — see `ruff.toml`) before every commit. It's not auto-installed by git, so install it once per clone:
+A pre-commit hook (`scripts/git-hooks/pre-commit`) checks Python syntax and lints for bugs before every commit. Install it once per clone:
 
 ```bash
 cp scripts/git-hooks/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
