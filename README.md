@@ -122,3 +122,8 @@ Subclass `ScraperWorker` and override either or both hooks, then point `crawler/
 ## License
 
 [GNU GPLv3](LICENSE)
+
+## AI-Usage
+
+Parts of this project (code, commit messages, documentation) were written with [Claude Code](https://claude.com/claude-code).
+
