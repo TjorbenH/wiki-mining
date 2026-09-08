@@ -1,6 +1,6 @@
 # wiki-mining
 
-A distributed web crawler that scrapes HTML, stores it in object storage, and builds a link graph across pages. Designed for wiki-style sites where crawling should stay within a single domain.
+A distributed web crawler that scrapes HTML, stores it in object storage, and builds a link graph across pages. Designed for wiki-style sites where crawling should stay within a single domain. The crawler is really only suited for static webpages as it can only capture the raw html. Any dynamic pages haven't been tested or even considered yet.
 
 ## Architecture
 
@@ -12,6 +12,18 @@ Two Python services coordinate over Redis and persist to PostgreSQL and MinIO:
 Redis carries two channels: `crawl_stream` (a Redis Stream with consumer groups, crawler → dispatcher → crawler) and `unprocessed_links` (a plain list, crawler → dispatcher).
 
 Admin interfaces: **Adminer** at `localhost:8080` (PostgreSQL), **MinIO console** at `localhost:9001`.
+
+## Disclaimer 
+This crawler is a passion project and more of a technical challenge than actual software. 
+
+**Before pointing this at any site, check that site's Terms of Service, `robots.txt`, and any other policies.** I'm not liable for how anyone uses this project, including scraping a site in a way that violates rules. 
+
+The system itself doesn't read or follow `robots.txt` or any other site-specific restrictions, so it's probably not suited for any commercial websites.
+
+For testing the project in a safe environment I recommend practice websites such as `books.toscrape.com` and others listed in this wonderful [article](https://www.scrapingbee.com/blog/scraper-sites/).
+
+### License
+This project runs under the [GNU GPLv3 License](LICENSE).
 
 ## Usage
 
@@ -118,10 +130,6 @@ Subclass `ScraperWorker` and override either or both hooks, then point `crawler/
 - `_filter_urls(urls: set[str]) -> set[str]`: restrict which discovered URLs are forwarded to the dispatcher
 
 `WikiScraper` is the current implementation; it filters crawling to a single domain.
-
-## License
-
-[GNU GPLv3](LICENSE)
 
 ## AI-Usage
 
