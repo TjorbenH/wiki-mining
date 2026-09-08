@@ -9,7 +9,7 @@ Two Python services coordinate over Redis and persist to PostgreSQL and MinIO:
 - **Dispatcher** deduplicates discovered URLs against the DB and queues new ones for crawling
 - **Crawler** fetches pages, saves raw HTML to MinIO, and pushes outgoing links back to the dispatcher
 
-Redis carries two channels: `crawl_stream` (a Redis Stream with consumer groups, crawler → dispatcher → crawler) and `unprocessed_links` (a plain list, crawler → dispatcher).
+Redis carries two channels, both Redis Streams with consumer groups: `crawl_stream` (dispatcher → crawler) and `unprocessed_links` (crawler → dispatcher).
 
 Admin interfaces: **Adminer** at `localhost:8080` (PostgreSQL), **MinIO console** at `localhost:9001`.
 
@@ -36,15 +36,39 @@ DB_NAME=scraped_data
 DB_USER=
 DB_PASSWORD=
 
+MINIO_ROOT_USER=
+MINIO_ROOT_PASSWORD=
+MINIO_ACCESS_KEY=
+MINIO_SECRET_KEY=
+MINIO_BUCKET=raw-html
+
 REDIS_HOST=queue
 REDIS_PORT=6379
 REDIS_CRAWL_STREAM=crawl_stream
 REDIS_CRAWL_GROUP=crawlers
-REDIS_LINKS_QUEUE=unprocessed_links
+REDIS_DISPATCHER_STREAM=unprocessed_links
+REDIS_DISPATCHER_GROUP=dispatchers
 
-MINIO_ROOT_USER=
-MINIO_ROOT_PASSWORD=
-MINIO_BUCKET=raw-html
+# --- TUNABLES ---
+
+# crawler tunables
+CONCURRENCY_LIMIT=4
+RATE_LIMIT=0.5
+
+# dispatcher tunables
+BATCH_SIZE=50
+
+# dispatcher reclaim tunables
+RECLAIM_PENDING_MIN_IDLE_MS=60000 # how long a url has to be pending to be reclaimed
+RECLAIM_PENDING_POLL_INTERVAL=30
+RECLAIM_PENDING_BATCH_SIZE=200
+RECLAIM_RETRY_BATCH_SIZE=100
+RECLAIM_RETRY_MAX_ATTEMPTS=5
+RECLAIM_RETRY_BASE_DELAY_SECONDS=60
+RECLAIM_RETRY_POLL_INTERVAL=60
+
+# LOG_LEVEL is shared by crawler, dispatcher, and seed.py (DEBUG, INFO, WARNING, ERROR)
+LOG_LEVEL=INFO
 ```
 
 ### Quick start (run.sh)
