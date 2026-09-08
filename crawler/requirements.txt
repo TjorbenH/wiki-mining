@@ -1,6 +1,6 @@
-aiohttp
-beautifulsoup4
-lxml
-redis
-minio
-asyncpg # interface for the PostgreSQL DB
+aiohttp==3.14.3
+beautifulsoup4==4.15.0
+lxml==6.1.3
+redis==8.1.0
+minio==7.2.20
+asyncpg==0.31.0 # interface for the PostgreSQL DB

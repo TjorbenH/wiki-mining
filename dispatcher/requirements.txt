@@ -1,2 +1,2 @@
-redis
-asyncpg # interface for the PostgreSQL DB
+redis==8.1.0
+asyncpg==0.31.0 # interface for the PostgreSQL DB

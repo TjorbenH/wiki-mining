@@ -66,7 +66,7 @@ services:
   # 3. MESSAGE QUEUE
   # coordinate and synchonize the crawlers on a set of urls
   queue:
-    image: redis:latest
+    image: redis:8.6.2
     restart: always
     command: redis-server --appendonly yes --maxmemory 2gb --maxmemory-policy noeviction
     healthcheck:
@@ -100,7 +100,7 @@ services:
   # 5. ADMINER
   # admin interface into the postgress database
   adminer:
-    image: adminer
+    image: adminer:5.4.2
     restart: always
     ports:
       - 8080:8080
@@ -112,7 +112,7 @@ services:
   # 6. MINIO 
   # Object Storage for the large amounts of HTML Data expected
   minio:
-    image: minio/minio
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
     restart: always
     command: server /data --console-address ":9001"
     environment:
@@ -131,7 +131,7 @@ services:
 
   # 7. MINIO SETUP
   minio-setup:
-    image: minio/mc
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
     depends_on:
       minio:
         condition: service_healthy
