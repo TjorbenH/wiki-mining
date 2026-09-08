@@ -54,7 +54,7 @@ class QueueManager:
         # Mutex to prevent calling run multiple times
         self.run_mutex = asyncio.Lock()
 
-    async def _ensure_stream_group(self, stream, group) -> None: #TODO this is duplicate would be nice to have a util collection for dispatcher AND scraper
+    async def ensure_stream_group(self, stream, group) -> None: #TODO this is duplicate would be nice to have a util collection for dispatcher AND scraper
         try:
             # "$" = only new entries from now on; mkstream=True creates the stream if absent
             await self.redis_client.xgroup_create(name=stream, groupname=group, id="$", mkstream=True)
@@ -72,8 +72,8 @@ class QueueManager:
         async with self.run_mutex:
             self.stop_event.clear()
             # ensure communication with the crawlers is possible
-            await self._ensure_stream_group(stream=self.crawl_stream, group=self.crawl_group)
-            await self._ensure_stream_group(stream=self.dispatcher_stream, group=self.dispatcher_group)
+            await self.ensure_stream_group(stream=self.crawl_stream, group=self.crawl_group)
+            await self.ensure_stream_group(stream=self.dispatcher_stream, group=self.dispatcher_group)
             logger.info("QueueManager started.")
 
             while not self.stop_event.is_set():
@@ -100,15 +100,10 @@ class QueueManager:
         logger.info("Received stop signal ...")
         self.stop_event.set()
         
-    def _canonicalize(self, url: str) -> str:
-        """Normalize a URL so semantically identical URLs map to the same string"""
-        try:
-            p = urlparse(url)
-            path = p.path.rstrip("/") or "/"
-            query = urlencode(sorted(parse_qsl(p.query)))
-            return urlunparse((p.scheme.lower(), p.netloc.lower(), path, "", query, ""))
-        except Exception:
-            return url
+    async def _drain_and_dispatch(self) -> int:
+        """Drains potentially new URLs from the dispatcher stream and processes them."""
+        batch = await self._drain_batch()
+        return await self._process_batch(batch) if batch else 0
  
     async def _drain_batch(self) -> list[tuple[str, dict]]:
         """Read up to batch_size entries off the dispatcher stream."""
@@ -124,6 +119,10 @@ class QueueManager:
             return []
 
         _, entries = result[0]
+        return await self._parse_entries(entries)
+
+    async def _parse_entries(self, entries) -> list[tuple[str, dict]]:
+        """Parses raw Redis Stream entries into (msg_id, {"origin_id":..., "urls":...}) tuples"""
         batch = []
         for msg_id, fields in entries:
             try:
@@ -133,11 +132,12 @@ class QueueManager:
                 await self.redis_client.xack(self.dispatcher_stream, self.dispatcher_group, msg_id)
         return batch
     
-    async def _drain_and_dispatch(self) -> int:
-        """Drains potentially new URLs from the dispatcher stream, 
-        enters them into the RawData DB and checks if they are genuinly new,
-        if so dispatches the url back to the crawlers via the crawl_stream."""
-        batch = await self._drain_batch()
+    async def _process_batch(self, batch: list[tuple[str, dict]]) -> int:
+        """Enters a batch of (msg_id, {"origin_id":..., "urls":...}) entries into the RawData DB,
+        checks which URLs are genuinely new, dispatches those back to the crawlers via
+        crawl_stream, then acks the batch's msg_ids.
+        Idempotent for entries that were allready fully processed.
+        """
         if not batch:
             return 0
 
@@ -216,3 +216,13 @@ class QueueManager:
 
         logger.info(f"Batch: {len(pairs)} links processed, {len(new_rows)} URLs dispatched to {self.crawl_stream}.")
         return len(pairs)
+
+    def _canonicalize(self, url: str) -> str:
+        """Normalize a URL so semantically identical URLs map to the same string"""
+        try:
+            p = urlparse(url)
+            path = p.path.rstrip("/") or "/"
+            query = urlencode(sorted(parse_qsl(p.query)))
+            return urlunparse((p.scheme.lower(), p.netloc.lower(), path, "", query, ""))
+        except Exception:
+            return url

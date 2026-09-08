@@ -6,6 +6,7 @@ import asyncio
 from redis.asyncio import Redis
 
 from QueueManager import QueueManager
+from ReclaimManager import ReclaimManager
 
 
 # environment variables
@@ -26,8 +27,16 @@ DB_NAME = os.environ.get('DB_NAME', 'scraped_data')
 
 BATCH_SIZE = int(os.environ.get('BATCH_SIZE', '50'))
 
+RECLAIM_PENDING_MIN_IDLE_MS = int(os.environ.get('RECLAIM_PENDING_MIN_IDLE_MS', '60000'))
+RECLAIM_PENDING_POLL_INTERVAL = float(os.environ.get('RECLAIM_PENDING_POLL_INTERVAL', '30'))
+RECLAIM_PENDING_BATCH_SIZE = int(os.environ.get('RECLAIM_PENDING_BATCH_SIZE', '200'))
+RECLAIM_RETRY_BATCH_SIZE = int(os.environ.get('RECLAIM_RETRY_BATCH_SIZE', '100'))
+RECLAIM_RETRY_MAX_ATTEMPTS = int(os.environ.get('RECLAIM_RETRY_MAX_ATTEMPTS', '5'))
+RECLAIM_RETRY_BASE_DELAY_SECONDS = int(os.environ.get('RECLAIM_RETRY_BASE_DELAY_SECONDS', '60'))
+RECLAIM_RETRY_POLL_INTERVAL = float(os.environ.get('RECLAIM_RETRY_POLL_INTERVAL', '60'))
+
 DB_POOL_MIN_SIZE = 1
-DB_POOL_MAX_SIZE = 5
+DB_POOL_MAX_SIZE = 8
 
 _LOG_LEVEL_NAME = os.environ.get('LOG_LEVEL', 'INFO').upper()
 LOG_LEVEL = getattr(logging, _LOG_LEVEL_NAME, logging.INFO)
@@ -40,7 +49,10 @@ async def main():
     logging.info(
         f"Config: DB={DB_HOST}:{DB_PORT}/{DB_NAME} user={DB_USER} | "
         f"Redis={REDIS_HOST} crawl_stream={REDIS_CRAWL_STREAM} crawl_group={REDIS_CRAWL_GROUP} dispatcher_stream={REDIS_DISPATCHER_STREAM} dispatcher_group={REDIS_DISPATCHER_GROUP} | "
-        f"batch_size={BATCH_SIZE}"
+        f"batch_size={BATCH_SIZE} | "
+        f"reclaim_pending_min_idle_ms={RECLAIM_PENDING_MIN_IDLE_MS} reclaim_pending_batch_size={RECLAIM_PENDING_BATCH_SIZE} "
+        f"reclaim_retry_batch_size={RECLAIM_RETRY_BATCH_SIZE} reclaim_retry_max_attempts={RECLAIM_RETRY_MAX_ATTEMPTS} "
+        f"reclaim_retry_base_delay_seconds={RECLAIM_RETRY_BASE_DELAY_SECONDS}"
     )
 
     redis_client = Redis(
@@ -69,18 +81,38 @@ async def main():
         batch_size=BATCH_SIZE
     )
     
+    reclaim_manager = ReclaimManager(
+        redis_client=redis_client,
+        dispatcher_stream=REDIS_DISPATCHER_STREAM,
+        dispatcher_group=REDIS_DISPATCHER_GROUP,
+        queue_manager=queue_manager,
+        pg_pool=pg_pool,
+        crawl_stream=REDIS_CRAWL_STREAM,
+        hostname=CONTAINER_NAME,
+        pending_min_idle_ms=RECLAIM_PENDING_MIN_IDLE_MS,
+        pending_batch_size=RECLAIM_PENDING_BATCH_SIZE,
+        retry_batch_size=RECLAIM_RETRY_BATCH_SIZE,
+        retry_max_attempts=RECLAIM_RETRY_MAX_ATTEMPTS,
+        retry_base_delay_seconds=RECLAIM_RETRY_BASE_DELAY_SECONDS,
+    )
+
     queue_task = asyncio.create_task(queue_manager.run())
-    
+    reclaim_task = asyncio.create_task(reclaim_manager.run(
+        pending_poll_interval=RECLAIM_PENDING_POLL_INTERVAL,
+        retry_poll_interval=RECLAIM_RETRY_POLL_INTERVAL,
+    ))
+
     def _handle_shutdown_signal():
         logging.info("Shutdown signal received, stopping scraper...")
         queue_manager.stop()
-    
+        reclaim_manager.stop()
+
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, _handle_shutdown_signal)
-    
+
     try:
-        await queue_task
+        await asyncio.gather(queue_task, reclaim_task)
     finally:
         await redis_client.aclose()
         await pg_pool.close()
