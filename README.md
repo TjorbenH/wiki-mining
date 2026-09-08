@@ -48,8 +48,6 @@ MINIO_BUCKET=raw-html
 - `-s, --seed URL [URL ...]` seed one or more starting URLs once the stack is up
 - `--logs` / `--no-logs` toggle the on-the-fly log capture described below (off by default)
 
-Note: on a first-ever startup (empty volumes), `docker compose up -d` can take a while. `run.sh`'s `--seed` retry loop only waits ~10 seconds for the dispatcher and might time out on first startup. If that happens, just re-run `./run.sh --seed <url>` once `docker compose ps` shows everything healthy.
-
 ### Manual Start
 
 Start all services with:

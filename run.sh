@@ -84,8 +84,6 @@ if $LOG_CAPTURE; then
     echo "    Stop with: kill $dispatcher_pid $crawler_pid  (also saved in logs/.run-$ts.pids)"
 fi
 
-sleep 5
-
 if [[ ${#SEED_URLS[@]} -gt 0 ]]; then
     echo "==> Seeding ${#SEED_URLS[@]} URL(s)..."
     seeded=false
