@@ -72,6 +72,8 @@ services:
       CONCURRENCY_LIMIT: ${CONCURRENCY_LIMIT}
       RATE_LIMIT: ${RATE_LIMIT}
       LOG_LEVEL: ${LOG_LEVEL}
+      # comma-separated domains to whitelist for crawling; robots.txt is fetched and checked for each on startup
+      CRAWLER_DOMAINS: ${CRAWLER_DOMAINS}
 
   # 3. MESSAGE QUEUE
   # coordinate and synchonize the crawlers on a set of urls

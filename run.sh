@@ -9,6 +9,7 @@ cd "$SCRIPT_DIR"
 
 LOG_CAPTURE=false
 SEED_URLS=()
+DOMAINS=()
 
 usage() {
     cat << 'EOF'
@@ -19,8 +20,16 @@ Starts the crawler stack via docker compose, with a few convenience flags.
 Options:
   -l, --log-level LEVEL   Override LOG_LEVEL for dispatcher/crawler (DEBUG, INFO,
                           WARNING, ERROR). Default: whatever is set in .env.
+  -d, --domain DOMAIN [...]
+                          Override CRAWLER_DOMAINS: domain(s) the crawler is allowed
+                          to follow links onto (robots.txt is checked for each on
+                          startup). Accepts multiple domains; must be the last flag
+                          given. Default: whatever is set in .env.
   -s, --seed URL [...]    Seed one or more starting URLs after startup. Accepts
-                          multiple URLs; must be the last flag given.
+                          multiple URLs; must be the last flag given. The seeded
+                          URLs' domains still need to be covered by --domain/
+                          CRAWLER_DOMAINS or the crawler will scrape only that one
+                          page and filter out every link it finds on it.
       --logs              Enable on-the-fly log capture to logs/<service>-<ts>.log
                           (background 'docker compose logs -f', split per service).
       --no-logs           Disable log capture (default).
@@ -28,7 +37,7 @@ Options:
 
 Examples:
   ./run.sh --log-level DEBUG --logs
-  ./run.sh --seed http://books.toscrape.com
+  ./run.sh --domain books.toscrape.com --seed http://books.toscrape.com
 EOF
 }
 
@@ -37,6 +46,13 @@ while [[ $# -gt 0 ]]; do
         -l|--log-level)
             LOG_LEVEL="$2"
             shift 2
+            ;;
+        -d|--domain)
+            shift
+            while [[ $# -gt 0 && "$1" != -* ]]; do
+                DOMAINS+=("$1")
+                shift
+            done
             ;;
         -s|--seed)
             shift
@@ -69,6 +85,11 @@ echo "==> Starting services..."
 if [[ -n "${LOG_LEVEL:-}" ]]; then
     echo "    LOG_LEVEL override: $LOG_LEVEL"
     export LOG_LEVEL
+fi
+if [[ ${#DOMAINS[@]} -gt 0 ]]; then
+    CRAWLER_DOMAINS=$(IFS=,; echo "${DOMAINS[*]}")
+    echo "    CRAWLER_DOMAINS override: $CRAWLER_DOMAINS"
+    export CRAWLER_DOMAINS
 fi
 docker compose up -d
 

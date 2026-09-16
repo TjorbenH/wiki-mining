@@ -54,6 +54,8 @@ REDIS_DISPATCHER_GROUP=dispatchers
 # crawler tunables
 CONCURRENCY_LIMIT=4
 RATE_LIMIT=0.5
+# comma-separated domains the crawler is allowed to follow links onto; robots.txt is fetched and checked for each on startup
+CRAWLER_DOMAINS=books.toscrape.com
 
 # dispatcher tunables
 BATCH_SIZE=50
@@ -77,11 +79,12 @@ LOG_LEVEL=INFO
 
 ```bash
 ./run.sh --help
-./run.sh --log-level DEBUG --logs --seed http://books.toscrape.com
+./run.sh --log-level DEBUG --logs --domain books.toscrape.com --seed http://books.toscrape.com
 ```
 
 - `-l, --log-level LEVEL` override `LOG_LEVEL` for this run only, without editing `.env`
-- `-s, --seed URL [URL ...]` seed one or more starting URLs once the stack is up
+- `-d, --domain DOMAIN [DOMAIN ...]` override `CRAWLER_DOMAINS` for this run only; robots.txt is fetched and checked for each domain on crawler startup
+- `-s, --seed URL [URL ...]` seed one or more starting URLs once the stack is up — their domains still need to be covered by `--domain`/`CRAWLER_DOMAINS`, or the crawler scrapes just that one page and filters out every link it finds on it
 - `--logs` / `--no-logs` toggle the on-the-fly log capture described below (off by default)
 
 ### Manual Start
@@ -148,12 +151,10 @@ python3 -m venv .venv
 
 ## Extending the crawler
 
-Subclass `ScraperWorker` and override either or both hooks, then point `crawler/main.py` at your subclass:
+`ScraperWorker` (`crawler/main.py`) is used directly. By default `_filter_urls` keeps discovered links on domains whitelisted via `CRAWLER_DOMAINS`/`initalize_domain()` and honours each domain's `robots.txt`. Subclass it and override either hook for site-specific behavior, then point `crawler/main.py` at your subclass:
 
 - `_process_html(html: str) -> str`: transform HTML before it is saved to MinIO
-- `_filter_urls(urls: set[str]) -> set[str]`: restrict which discovered URLs are forwarded to the dispatcher
-
-`WikiScraper` is the current implementation; it filters crawling to a single domain.
+- `_filter_urls(urls: set[str]) -> set[str]`: restrict which discovered URLs are forwarded to the dispatcher (call `super()._filter_urls()` to keep the whitelist/robots.txt behavior)
 
 ## AI-Usage
 
