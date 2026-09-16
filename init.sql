@@ -27,3 +27,11 @@ CREATE TABLE IF NOT EXISTS Links (
 );
 
 CREATE INDEX idx_rawdata_status_updated ON RawData (scraping_status, updated_at);
+
+-- Domain whitelist with a corresponding robot.txt entry 
+-- Crawlers load this table once at startup and never recheck it.
+CREATE TABLE IF NOT EXISTS DomainsWhitelist (
+    domain TEXT PRIMARY KEY,
+    robots_txt TEXT, -- NULL means no robots.txt was found (unrestricted)
+    checked_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

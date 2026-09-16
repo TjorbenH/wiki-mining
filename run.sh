@@ -14,21 +14,27 @@ usage() {
     cat << 'EOF'
 Usage: ./run.sh [options]
 
-Starts the crawler stack via docker compose, with a few convenience flags.
+Starts the crawler stack via docker compose, with a few convenience flags. The
+crawler service is NOT started by 'docker compose up -d' (it needs at least one
+domain whitelisted first via seed.py) - it only starts if --seed is given here,
+right after seeding succeeds. Without --seed, everything else comes up and you
+seed/start the crawler yourself when ready.
 
 Options:
   -l, --log-level LEVEL   Override LOG_LEVEL for dispatcher/crawler (DEBUG, INFO,
                           WARNING, ERROR). Default: whatever is set in .env.
-  -s, --seed URL [...]    Seed one or more starting URLs after startup. Accepts
-                          multiple URLs; must be the last flag given.
+  -s, --seed URL [...]    Seed one or more starting URLs, then start the crawler.
+                          Accepts multiple URLs; must be the last flag given.
       --logs              Enable on-the-fly log capture to logs/<service>-<ts>.log
                           (background 'docker compose logs -f', split per service).
       --no-logs           Disable log capture (default).
   -h, --help              Show this help and exit.
 
 Examples:
-  ./run.sh --log-level DEBUG --logs
-  ./run.sh --seed http://books.toscrape.com
+  ./run.sh --log-level DEBUG --logs --seed http://books.toscrape.com
+  ./run.sh                                    # bring up everything but the crawler
+  docker compose exec dispatcher python seed.py http://books.toscrape.com
+  docker compose up -d crawler
 EOF
 }
 
@@ -77,11 +83,8 @@ if $LOG_CAPTURE; then
     ts=$(date +%Y%m%d-%H%M%S)
     docker compose logs -f --no-color dispatcher > "logs/dispatcher-$ts.log" &
     dispatcher_pid=$!
-    docker compose logs -f --no-color crawler > "logs/crawler-$ts.log" &
-    crawler_pid=$!
-    echo "$dispatcher_pid $crawler_pid" > "logs/.run-$ts.pids"
-    echo "==> Logging to logs/dispatcher-$ts.log and logs/crawler-$ts.log"
-    echo "    Stop with: kill $dispatcher_pid $crawler_pid  (also saved in logs/.run-$ts.pids)"
+    echo "$dispatcher_pid" > "logs/.run-$ts.pids"
+    echo "==> Logging dispatcher to logs/dispatcher-$ts.log"
 fi
 
 if [[ ${#SEED_URLS[@]} -gt 0 ]]; then
@@ -99,6 +102,22 @@ if [[ ${#SEED_URLS[@]} -gt 0 ]]; then
         echo "==> ERROR: failed to seed URLs after 10 attempts." >&2
         exit 1
     fi
+
+    echo "==> Seeding done, starting crawler..."
+    docker compose up -d crawler
+
+    if $LOG_CAPTURE; then
+        docker compose logs -f --no-color crawler > "logs/crawler-$ts.log" &
+        crawler_pid=$!
+        echo "$dispatcher_pid $crawler_pid" > "logs/.run-$ts.pids"
+        echo "==> Logging crawler to logs/crawler-$ts.log"
+        echo "    Stop logging with: kill $dispatcher_pid $crawler_pid  (also saved in logs/.run-$ts.pids)"
+    fi
+else
+    echo "==> No --seed given: crawler NOT started (it needs at least one whitelisted domain first)."
+    echo "    Seed a domain, then start it:"
+    echo "      docker compose exec dispatcher python seed.py <url1> <url2> ..."
+    echo "      docker compose up -d crawler"
 fi
 
 echo "==> Done. 'docker compose logs -f' to watch, 'docker compose down' to stop."

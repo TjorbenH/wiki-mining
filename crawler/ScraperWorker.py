@@ -4,6 +4,7 @@ import io
 import json
 import logging
 from urllib.parse import urljoin, urlparse
+from urllib.robotparser import RobotFileParser
  
 import aiohttp
 import asyncpg
@@ -66,6 +67,10 @@ class ScraperWorker:
         
         # Session with custom header if a website requires identification for automated scapeing (wikipedia)
         self.session = None  
+        
+        # domain whitelist + parsed robots.txt rules, set up exclusively by seed.py and loaded
+        # once per run() call - see _load_domains(). Never rechecked afterward.
+        self._domain_parsers: dict[str, RobotFileParser] = {}
     
     async def _ensure_stream_group(self, stream, group) -> None:
         try:
@@ -75,7 +80,21 @@ class ScraperWorker:
             if "BUSYGROUP" not in str(e):
                 logger.error(f"Stream {stream} for group {group} doesn't exist and couldn't be created.")
                 raise
-    
+            
+    async def _load_whitelists(self) -> None:
+        """ Load the domain whitelist + robots.txt rules set up by seed.py. 
+        Important: this is a one off call at the start of run. 
+        Any newly whitelisted domains are NOT passed on util the ScraperWorker gets restarted.
+        """
+        domains = await self.database.get_domain_whitelist()
+        parsers = {}
+        for domain, robots_txt in domains.items():
+            parser = RobotFileParser()
+            parser.parse(robots_txt.splitlines() if robots_txt else [])
+            parsers[domain] = parser
+        self._domain_parsers = parsers
+        logger.info(f"Loaded {len(parsers)} whitelisted domain(s): {sorted(parsers)}")
+
     async def run(self, concurrency_limit: int = 10, rate_limit: int = 1) -> None:
         """ Start <concurrency_limit> many crawler tasks each running with a per item rate limit of <rate_limit>. """
         if self.run_mutex.locked():
@@ -87,6 +106,7 @@ class ScraperWorker:
             # ensure communication with the dispatcher is possible
             await self._ensure_stream_group(stream=self.crawl_stream, group=self.crawl_group)
             await self._ensure_stream_group(stream=self.dispatcher_stream, group=self.dispatcher_group)
+            await self._load_whitelists()
             self.session = aiohttp.ClientSession(headers=self._headers)
             logger.info(f"Starting {concurrency_limit} worker threads ...")
             try:
@@ -268,5 +288,33 @@ class ScraperWorker:
         return html
     
     async def _filter_urls(self, urls: set[str]) ->set[str]:
-        """ Interface: Overwrite to set specific crawl rules (e.g. certain top level domains, whitelist, blacklist ...)"""
-        return urls
+        """ Interface: Overwrite to set specific crawl rules (e.g. certain top level domains, whitelist, blacklist ...)
+        By default the crawler keeps only URLs on whitelisted domains and ensures it follows hostname specific robots.txt rules.
+        It's recommended to keep this behavior and to call super()._filter_urls() in any subclass.
+        """
+        user_agent = (self._headers or {}).get("User-Agent", "*")
+        filtered_urls = set()
+
+        for url in urls:
+            try:
+                hostname = urlparse(url).hostname
+            except ValueError:
+                logger.debug(f"Dropping unparsable url: {url!r}")
+                continue
+            if not hostname:
+                logger.debug(f"Dropping url with no hostname: {url!r}")
+                continue
+            hostname = hostname.lower()
+
+            parser = self._domain_parsers.get(hostname)
+            if parser is None:
+                logger.debug(f"Dropping url on non-whitelisted domain: {url!r}")
+                continue
+
+            if not parser.can_fetch(user_agent, url):
+                logger.debug(f"Dropping url disallowed by robots.txt: {url!r}")
+                continue
+
+            filtered_urls.add(url)
+
+        return filtered_urls

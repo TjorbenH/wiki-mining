@@ -6,7 +6,7 @@ import asyncpg
 from redis.asyncio import Redis
 from minio import Minio
 
-from WikiScraper import WikiScraper 
+from ScraperWorker import ScraperWorker
 
 # environment variables
 MINIO_ENDPOINT = os.environ.get('MINIO_ENDPOINT', 'localhost:9000')
@@ -31,6 +31,8 @@ DB_NAME = os.environ.get('DB_NAME', 'scraped_data')
 CONCURRENCY_LIMIT = int(os.environ.get('CONCURRENCY_LIMIT', '4'))
 RATE_LIMIT = float(os.environ.get('RATE_LIMIT', '0.5'))
 
+CRAWLER_USER_AGENT = os.environ.get('CRAWLER_USER_AGENT', '*')
+
 _LOG_LEVEL_NAME = os.environ.get('LOG_LEVEL', 'INFO').upper()
 LOG_LEVEL = getattr(logging, _LOG_LEVEL_NAME, logging.INFO)
 
@@ -43,7 +45,7 @@ async def main():
         f"Config: DB={DB_HOST}:{DB_PORT}/{DB_NAME} user={DB_USER} | "
         f"Redis={REDIS_HOST} crawl_stream={REDIS_CRAWL_STREAM} crawl_group={REDIS_CRAWL_GROUP} dispatcher_stream={REDIS_DISPATCHER_STREAM} dispatcher_group={REDIS_DISPATCHER_GROUP} | "
         f"MinIO={MINIO_ENDPOINT} bucket={MINIO_BUCKET} | "
-        f"concurrency={CONCURRENCY_LIMIT} rate_limit={RATE_LIMIT}s"
+        f"concurrency={CONCURRENCY_LIMIT} rate_limit={RATE_LIMIT}s user_agent={CRAWLER_USER_AGENT!r}"
     )
 
     redis_client = Redis(
@@ -72,7 +74,7 @@ async def main():
         max_size=CONCURRENCY_LIMIT,
     )
 
-    scraper = WikiScraper(
+    scraper = ScraperWorker(
         minio_client=s3_client,
         minio_bucket=MINIO_BUCKET,
         redis_client=redis_client,
@@ -82,9 +84,9 @@ async def main():
         dispatcher_group=REDIS_DISPATCHER_GROUP,
         pg_pool = pg_pool,
         hostname=CONTAINER_NAME,
-        domain="books.toscrape.com" #TODO this is against the entire seed and run.sh idea. No hardcoding!
+        headers={'User-Agent': CRAWLER_USER_AGENT}
     )
-    
+
     scraper_task = asyncio.create_task(scraper.run(concurrency_limit=CONCURRENCY_LIMIT, rate_limit=RATE_LIMIT))
         
     def _handle_shutdown_signal():

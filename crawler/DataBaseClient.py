@@ -34,3 +34,9 @@ class DataBaseClient:
                 """,
                 url_id,
             )
+
+    async def get_domain_whitelist(self) -> dict[str, str | None]:
+        """Returns {domain: robots_txt} for every domain seed.py has whitelisted."""
+        async with self.pg_pool.acquire() as conn:
+            rows = await conn.fetch("SELECT domain, robots_txt FROM DomainsWhitelist;")
+        return {row["domain"]: row["robots_txt"] for row in rows}
