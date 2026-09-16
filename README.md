@@ -1,6 +1,6 @@
 # wiki-mining
 
-A distributed web crawler that scrapes HTML, stores it in object storage, and builds a link graph across pages. Designed for wiki-style sites where crawling should stay within a single domain. The crawler is really only suited for static webpages as it can only capture the raw html. Any dynamic pages haven't been tested or even considered yet.
+A distributed web crawler that scrapes HTML, stores it in object storage, and builds a link graph across pages. Designed for wiki-style sites where crawling should stay within a restricted domain range. The crawler is really only suited for static webpages as it can only capture the raw html. Any dynamic pages haven't been tested or even considered yet.
 
 ## Architecture
 
@@ -11,14 +11,16 @@ Two Python services coordinate over Redis and persist to PostgreSQL and MinIO:
 
 Redis carries two channels, both Redis Streams with consumer groups: `crawl_stream` (dispatcher → crawler) and `unprocessed_links` (crawler → dispatcher).
 
+`seed.py` is used to enter starting URLs into the system and also to whitelist the needed domains after fetching and evaluating their `robots.txt`. It's important to run this script only when the Crawlers are not running (eg. on first start of a crawl) because they rely on the whitelist and only load it on startup.
+
 Admin interfaces: **Adminer** at `localhost:8080` (PostgreSQL), **MinIO console** at `localhost:9001`.
 
 ## Disclaimer 
 This crawler is a passion project and more of a technical challenge than actual software. 
 
-**Before pointing this at any site, check that site's Terms of Service, `robots.txt`, and any other policies.** I'm not liable for how anyone uses this project, including scraping a site in a way that violates rules. 
+**Before pointing this at any site, check that site's Terms of Service, `robots.txt`, and any other policies.** I'm not liable for how anyone uses this project, including scraping a site in a way that violates rules.
 
-The system itself doesn't read or follow `robots.txt` or any other site-specific restrictions, so it's probably not suited for any commercial websites.
+`seed.py` fetches and honours each domain's `robots.txt` on a best-effort basis. This is not a substitute for reading a site's actual Terms of Service. All in all the scraper is probably not suited for any commercial websites.
 
 For testing the project in a safe environment I recommend practice websites such as `books.toscrape.com` and others listed in this wonderful [article](https://www.scrapingbee.com/blog/scraper-sites/).
 
@@ -54,8 +56,8 @@ REDIS_DISPATCHER_GROUP=dispatchers
 # crawler tunables
 CONCURRENCY_LIMIT=4
 RATE_LIMIT=0.5
-# comma-separated domains the crawler is allowed to follow links onto; robots.txt is fetched and checked for each on startup
-CRAWLER_DOMAINS=books.toscrape.com
+# identity sent with page fetches and used to evaluate robots.txt (seed.py and crawler both use this)
+CRAWLER_USER_AGENT=*
 
 # dispatcher tunables
 BATCH_SIZE=50
@@ -79,20 +81,31 @@ LOG_LEVEL=INFO
 
 ```bash
 ./run.sh --help
-./run.sh --log-level DEBUG --logs --domain books.toscrape.com --seed http://books.toscrape.com
+./run.sh --log-level DEBUG --logs --seed http://books.toscrape.com
 ```
 
 - `-l, --log-level LEVEL` override `LOG_LEVEL` for this run only, without editing `.env`
-- `-d, --domain DOMAIN [DOMAIN ...]` override `CRAWLER_DOMAINS` for this run only; robots.txt is fetched and checked for each domain on crawler startup
-- `-s, --seed URL [URL ...]` seed one or more starting URLs once the stack is up — their domains still need to be covered by `--domain`/`CRAWLER_DOMAINS`, or the crawler scrapes just that one page and filters out every link it finds on it
+- `-s, --seed URL [URL ...]` seed one or more starting URLs, then start the crawler once seeding succeeds. Without `--seed`, `run.sh` brings up everything except the crawler (see Manual Start below for starting it yourself)
 - `--logs` / `--no-logs` toggle the on-the-fly log capture described below (off by default)
 
 ### Manual Start
 
-Start all services with:
+Start all services except the crawler (it needs a whitelisted domain first):
 
 ```bash
 docker compose up -d
+```
+
+Seed one or more starting URLs (bare hostnames are accepted) and whitelist their domains after fetching and evaluating each one's `robots.txt`:
+
+```bash
+docker compose exec dispatcher python seed.py http://books.toscrape.com
+```
+
+Then start the crawler:
+
+```bash
+docker compose up -d crawler
 ```
 
 To actively log during the session (optional but recommended):
@@ -110,12 +123,7 @@ After any code change:
 docker compose down [-v --remove-orphans]
 docker compose build --no-cache
 docker compose up -d
-```
-
-Seed one or more starting URLs (bare hostnames are accepted):
-
-```bash
-docker compose exec dispatcher python seed.py http://books.toscrape.com
+docker compose up -d crawler   # once you've (re)seeded, if needed
 ```
 
 Control individual services:
@@ -151,7 +159,7 @@ python3 -m venv .venv
 
 ## Extending the crawler
 
-`ScraperWorker` (`crawler/main.py`) is used directly. By default `_filter_urls` keeps discovered links on domains whitelisted via `CRAWLER_DOMAINS`/`initalize_domain()` and honours each domain's `robots.txt`. Subclass it and override either hook for site-specific behavior, then point `crawler/main.py` at your subclass:
+`ScraperWorker` (`crawler/main.py`) is used directly. By default `_filter_urls` keeps only discovered links on domains whitelisted by `seed.py` and honours each domain's cached `robots.txt`. Subclass it and override either hook for site-specific behavior, then point `crawler/main.py` at your subclass:
 
 - `_process_html(html: str) -> str`: transform HTML before it is saved to MinIO
 - `_filter_urls(urls: set[str]) -> set[str]`: restrict which discovered URLs are forwarded to the dispatcher (call `super()._filter_urls()` to keep the whitelist/robots.txt behavior)
@@ -159,4 +167,3 @@ python3 -m venv .venv
 ## AI-Usage
 
 Parts of this project (code, commit messages, documentation) were written with [Claude Code](https://claude.com/claude-code).
-

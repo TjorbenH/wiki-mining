@@ -68,11 +68,9 @@ class ScraperWorker:
         # Session with custom header if a website requires identification for automated scapeing (wikipedia)
         self.session = None  
         
-        # whitelist for all crawlable domains and blacklist stemming from any robots.txt files
-        self.domain_whitelist = set()
-        self.domain_blacklist = set()
-        # per-domain parsed robots.txt rules for whitelisted domains, used for path-level compliance checks
-        self.robots_parsers: dict[str, RobotFileParser] = {}
+        # domain whitelist + parsed robots.txt rules, set up exclusively by seed.py and loaded
+        # once per run() call - see _load_domains(). Never rechecked afterward.
+        self._domain_parsers: dict[str, RobotFileParser] = {}
     
     async def _ensure_stream_group(self, stream, group) -> None:
         try:
@@ -83,65 +81,19 @@ class ScraperWorker:
                 logger.error(f"Stream {stream} for group {group} doesn't exist and couldn't be created.")
                 raise
             
-    async def initalize_domain(self, domain: str) -> bool:
-        """ Check for any restrictions to crawlers on the given domain (robots.txt), store them and whitelist the domain for crawling.
-        Returns True if the domain is now whitelisted, False if robots.txt disallows the crawler entirely (domain is blacklisted instead).
-        Safe to call before run() starts the worker session - uses its own short-lived session.
+    async def _load_whitelists(self) -> None:
+        """ Load the domain whitelist + robots.txt rules set up by seed.py. 
+        Important: this is a one off call at the start of run. 
+        Any newly whitelisted domains are NOT passed on util the ScraperWorker gets restarted.
         """
-        domain = domain.lower().strip()
-        user_agent = (self._headers or {}).get("User-Agent", "*")
-
-        # Fetch robots.txt
-        robots_text = None
-        no_robots_file = False
-        access_denied = False
-        async with aiohttp.ClientSession(headers=self._headers, timeout=aiohttp.ClientTimeout(total=10)) as session:
-            for scheme in ("https", "http"):
-                robots_url = f"{scheme}://{domain}/robots.txt"
-                try:
-                    async with session.get(robots_url) as response:
-                        if response.status == 200:
-                            robots_text = await response.text()
-                            break
-                        if response.status in (401, 403):
-                            # Access to robots.txt itself refused -> domain gets blacklisted entirely
-                            logger.warning(f"robots.txt at {robots_url} returned HTTP {response.status} (access denied)")
-                            access_denied = True
-                            break
-                        if 400 <= response.status < 500:
-                            # no robots.txt present -> no restrictions
-                            logger.debug(f"robots.txt at {robots_url} returned HTTP {response.status}; treating as absent")
-                            no_robots_file = True
-                            break
-                        logger.warning(f"robots.txt at {robots_url} returned HTTP {response.status}")
-                except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-                    logger.warning(f"Failed to fetch {robots_url}: {e}")
-
-        if access_denied or (robots_text is None and not no_robots_file):
-            # Either robots.txt access was explicitly refused, or its absence/presence couldn't be confirmed
-            logger.error(f"Could not confirm crawl permission for {domain!r}; blacklisting domain.")
-            self.domain_whitelist.discard(domain)
-            self.robots_parsers.pop(domain, None)
-            self.domain_blacklist.add(domain)
-            return False
-
-        # extract disallow entries into a per-domain robots parser
-        parser = RobotFileParser()
-        parser.parse(robots_text.splitlines() if robots_text is not None else [])
-
-        if not parser.can_fetch(user_agent, f"https://{domain}/"):
-            logger.warning(f"robots.txt for {domain!r} disallows {user_agent!r} entirely; blacklisting domain.")
-            self.domain_whitelist.discard(domain)
-            self.robots_parsers.pop(domain, None)
-            self.domain_blacklist.add(domain)
-            return False
-
-        # store the domain in the crawlable domain whitelist
-        self.robots_parsers[domain] = parser
-        self.domain_whitelist.add(domain)
-        self.domain_blacklist.discard(domain)
-        logger.info(f"Domain whitelisted for crawling: {domain!r} ({'no robots.txt found' if robots_text is None else 'robots.txt parsed'})")
-        return True
+        domains = await self.database.get_domain_whitelist()
+        parsers = {}
+        for domain, robots_txt in domains.items():
+            parser = RobotFileParser()
+            parser.parse(robots_txt.splitlines() if robots_txt else [])
+            parsers[domain] = parser
+        self._domain_parsers = parsers
+        logger.info(f"Loaded {len(parsers)} whitelisted domain(s): {sorted(parsers)}")
 
     async def run(self, concurrency_limit: int = 10, rate_limit: int = 1) -> None:
         """ Start <concurrency_limit> many crawler tasks each running with a per item rate limit of <rate_limit>. """
@@ -154,6 +106,7 @@ class ScraperWorker:
             # ensure communication with the dispatcher is possible
             await self._ensure_stream_group(stream=self.crawl_stream, group=self.crawl_group)
             await self._ensure_stream_group(stream=self.dispatcher_stream, group=self.dispatcher_group)
+            await self._load_whitelists()
             self.session = aiohttp.ClientSession(headers=self._headers)
             logger.info(f"Starting {concurrency_limit} worker threads ...")
             try:
@@ -336,8 +289,8 @@ class ScraperWorker:
     
     async def _filter_urls(self, urls: set[str]) ->set[str]:
         """ Interface: Overwrite to set specific crawl rules (e.g. certain top level domains, whitelist, blacklist ...)
-        By default the crawler remains on the set of whitelisted domains for which a compliance check was perfomed using setup().
-        It's recommended to keep this behavior and to call super._filter_urls() in any subclass.
+        By default the crawler keeps only URLs on whitelisted domains and ensures it follows hostname specific robots.txt rules.
+        It's recommended to keep this behavior and to call super()._filter_urls() in any subclass.
         """
         user_agent = (self._headers or {}).get("User-Agent", "*")
         filtered_urls = set()
@@ -353,23 +306,9 @@ class ScraperWorker:
                 continue
             hostname = hostname.lower()
 
-            if any(hostname == blocked or hostname.endswith("." + blocked) for blocked in self.domain_blacklist):
-                logger.debug(f"Dropping blacklisted url: {url!r}")
-                continue
-
-            # exact match or subdomain of a whitelisted domain (e.g. "en.wikipedia.org" under "wikipedia.org")
-            whitelisted_domain = next(
-                (allowed for allowed in self.domain_whitelist if hostname == allowed or hostname.endswith("." + allowed)),
-                None,
-            )
-            if whitelisted_domain is None:
-                logger.debug(f"Dropping non-whitelisted url: {url!r}")
-                continue
-
-            parser = self.robots_parsers.get(whitelisted_domain)
+            parser = self._domain_parsers.get(hostname)
             if parser is None:
-                # Whitelisted without cached robots.txt rules (e.g. added outside initalize_domain)
-                logger.warning(f"No robots.txt rules cached for whitelisted domain {whitelisted_domain!r}; dropping {url!r}")
+                logger.debug(f"Dropping url on non-whitelisted domain: {url!r}")
                 continue
 
             if not parser.can_fetch(user_agent, url):

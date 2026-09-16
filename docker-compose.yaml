@@ -28,6 +28,7 @@ services:
       # tunables
       BATCH_SIZE: ${BATCH_SIZE}
       LOG_LEVEL: ${LOG_LEVEL}
+      CRAWLER_USER_AGENT: ${CRAWLER_USER_AGENT}
       # reclaim tunables
       RECLAIM_PENDING_MIN_IDLE_MS: ${RECLAIM_PENDING_MIN_IDLE_MS}
       RECLAIM_PENDING_POLL_INTERVAL: ${RECLAIM_PENDING_POLL_INTERVAL}
@@ -42,6 +43,9 @@ services:
   # does the actual crawling and scraping
   crawler:
     build: ./crawler
+    # does not start automatically on a 'docker compose up -d'
+    # start seperately via 'docker compose up -d crawler' once any whitelist and seed settings are complete (see seed.py)
+    profiles: ["crawler"]
     depends_on:
       queue:
         condition: service_healthy
@@ -72,8 +76,7 @@ services:
       CONCURRENCY_LIMIT: ${CONCURRENCY_LIMIT}
       RATE_LIMIT: ${RATE_LIMIT}
       LOG_LEVEL: ${LOG_LEVEL}
-      # comma-separated domains to whitelist for crawling; robots.txt is fetched and checked for each on startup
-      CRAWLER_DOMAINS: ${CRAWLER_DOMAINS}
+      CRAWLER_USER_AGENT: ${CRAWLER_USER_AGENT}
 
   # 3. MESSAGE QUEUE
   # coordinate and synchonize the crawlers on a set of urls
