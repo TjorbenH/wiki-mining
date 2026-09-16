@@ -120,11 +120,13 @@ Stop them once the run is done with `kill %1 %2`.
 After any code change:
 
 ```bash
-docker compose down [-v --remove-orphans]
-docker compose build --no-cache
+docker compose --profile crawler down [-v --remove-orphans]
+docker compose --profile crawler build --no-cache
 docker compose up -d
 docker compose up -d crawler   # once you've (re)seeded, if needed
 ```
+
+> **Note:** because `crawler` is seperated into its own compose profile, it's excluded from `down`, `build`, and `config` unless you pass `--profile crawler`.
 
 Control individual services:
 
