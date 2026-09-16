@@ -122,7 +122,8 @@ services:
   # 6. MINIO 
   # Object Storage for the large amounts of HTML Data expected
   minio:
-    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    # minio/minio was removed from Docker Hub
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
     restart: always
     command: server /data --console-address ":9001"
     environment:
@@ -141,7 +142,7 @@ services:
 
   # 7. MINIO SETUP
   minio-setup:
-    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
     depends_on:
       minio:
         condition: service_healthy
