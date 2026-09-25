@@ -45,7 +45,6 @@ MINIO_SECRET_KEY=
 MINIO_BUCKET=raw-html
 
 REDIS_HOST=queue
-REDIS_PORT=6379
 REDIS_CRAWL_STREAM=crawl_stream
 REDIS_CRAWL_GROUP=crawlers
 REDIS_DISPATCHER_STREAM=unprocessed_links
@@ -60,16 +59,8 @@ RATE_LIMIT=0.5
 CRAWLER_USER_AGENT=*
 
 # dispatcher tunables
-BATCH_SIZE=50
-
-# dispatcher reclaim tunables
-RECLAIM_PENDING_MIN_IDLE_MS=60000 # how long a url has to be pending to be reclaimed
-RECLAIM_PENDING_POLL_INTERVAL=30
-RECLAIM_PENDING_BATCH_SIZE=200
-RECLAIM_RETRY_BATCH_SIZE=100
+# retries per URL before it's given up on (crawl completion detection will rely on this too)
 RECLAIM_RETRY_MAX_ATTEMPTS=5
-RECLAIM_RETRY_BASE_DELAY_SECONDS=60
-RECLAIM_RETRY_POLL_INTERVAL=60
 
 # LOG_LEVEL is shared by crawler, dispatcher, and seed.py (DEBUG, INFO, WARNING, ERROR)
 LOG_LEVEL=INFO

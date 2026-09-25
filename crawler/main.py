@@ -28,8 +28,9 @@ DB_USER = os.environ.get('DB_USER', 'postgres')
 DB_PASSWORD = os.environ.get('DB_PASSWORD', 'postgres')
 DB_NAME = os.environ.get('DB_NAME', 'scraped_data')
 
-CONCURRENCY_LIMIT = int(os.environ.get('CONCURRENCY_LIMIT', '4'))
-RATE_LIMIT = float(os.environ.get('RATE_LIMIT', '0.5'))
+# `or` so an empty value (compose forwards a key missing from .env as "") falls back to the default too
+CONCURRENCY_LIMIT = int(os.environ.get('CONCURRENCY_LIMIT') or '4')
+RATE_LIMIT = float(os.environ.get('RATE_LIMIT') or '0.5')
 
 CRAWLER_USER_AGENT = os.environ.get('CRAWLER_USER_AGENT', '*')
 

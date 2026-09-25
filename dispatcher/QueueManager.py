@@ -34,7 +34,7 @@ class QueueManager:
         dispatcher_group: str,
         pg_pool: asyncpg.Pool,
         hostname: str,
-        batch_size: int = 200
+        batch_size: int = 50
     ):
         self.redis_client = redis_client
         self.crawl_stream = crawl_stream
