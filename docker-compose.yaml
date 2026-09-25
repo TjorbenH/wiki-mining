@@ -1,7 +1,6 @@
 services:
-  # 1. DISPATCHER
+  # DISPATCHER
   # analyse the existing db and add new urls to crawl to the queue 
-  # provide a montinoring and managment interface for the system
   dispatcher:
     build: ./dispatcher
     depends_on:
@@ -9,8 +8,6 @@ services:
         condition: service_healthy
       queue:
         condition: service_healthy
-    ports:
-      - "5000:5000" # montinoring web interface 
     environment:
       # db environment variables
       DB_HOST: ${DB_HOST}                   
@@ -31,7 +28,7 @@ services:
       RECLAIM_RETRY_MAX_ATTEMPTS: ${RECLAIM_RETRY_MAX_ATTEMPTS}
 
 
-  # 2. CRAWLER
+  # CRAWLER
   # does the actual crawling and scraping
   crawler:
     build: ./crawler
@@ -68,8 +65,49 @@ services:
       RATE_LIMIT: ${RATE_LIMIT}
       LOG_LEVEL: ${LOG_LEVEL}
       CRAWLER_USER_AGENT: ${CRAWLER_USER_AGENT}
+    
+  # MONITOR
+  # exposes a read-only monitoring web interface to check up on scraping stats and progress
+  monitor:
+    build: ./monitor
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+      queue:
+        condition: service_healthy
+    ports:
+      # same port on host and in the container; localhost only, it has no authentication
+      - "127.0.0.1:${MONITOR_PORT:-5000}:${MONITOR_PORT:-5000}"
+    environment:
+      # db environment variables (read-only role)
+      DB_HOST: ${DB_HOST}                   
+      DB_PORT: ${DB_PORT}                 
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${MONITOR_DB_USER}
+      DB_PASSWORD: ${MONITOR_DB_PASSWORD}
+      # queue environment variables
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_CRAWL_STREAM: ${REDIS_CRAWL_STREAM}
+      REDIS_CRAWL_GROUP: ${REDIS_CRAWL_GROUP}
+      REDIS_DISPATCHER_STREAM: ${REDIS_DISPATCHER_STREAM}
+      REDIS_DISPATCHER_GROUP: ${REDIS_DISPATCHER_GROUP}
+      # tunables
+      LOG_LEVEL: ${LOG_LEVEL}
+      # needed for crawl completion detection
+      RECLAIM_RETRY_MAX_ATTEMPTS: ${RECLAIM_RETRY_MAX_ATTEMPTS}
+      # port the web interface listens on; also used by the ports mapping and healthcheck of this service
+      MONITOR_PORT: ${MONITOR_PORT:-5000}
+    healthcheck:
+      # python:slim has no curl; urlopen raises (non-zero exit) on connection errors and non-2xx
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:${MONITOR_PORT:-5000}/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+  
 
-  # 3. MESSAGE QUEUE
+  # MESSAGE QUEUE
   # coordinate and synchonize the crawlers on a set of urls
   queue:
     image: redis:8.6.2
@@ -83,16 +121,19 @@ services:
     volumes:
       - queue-data:/data
 
-  # 4. DATABASE:
+  # DATABASE:
   # Postgres database to save the scraped data and metadata
   db:
     image: postgres:16
     restart: always
     environment:
-      # set values in the .env file 
+      # admin role
       POSTGRES_DB: ${DB_NAME}              
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
+      # read-only role for the monitor
+      MONITOR_DB_USER: ${MONITOR_DB_USER}
+      MONITOR_DB_PASSWORD: ${MONITOR_DB_PASSWORD}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
       interval: 5s
@@ -102,8 +143,9 @@ services:
     volumes:
       - db-data:/var/lib/postgresql/data/
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql:z # REMOVE BEFORE FLIGHT :z is just for Fedora 
+      - ./monitor-role.sh:/docker-entrypoint-initdb.d/monitor-role.sh:z # REMOVE BEFORE FLIGHT :z is just for Fedora 
 
-  # 5. ADMINER
+  # ADMINER
   # admin interface into the postgress database
   adminer:
     image: adminer:5.4.2
@@ -115,7 +157,7 @@ services:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
   
-  # 6. MINIO 
+  # MINIO 
   # Object Storage for the large amounts of HTML Data expected
   minio:
     # minio/minio was removed from Docker Hub
@@ -136,7 +178,7 @@ services:
     volumes:
       - minio-data:/data
 
-  # 7. MINIO SETUP
+  # MINIO SETUP
   minio-setup:
     image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
     depends_on:

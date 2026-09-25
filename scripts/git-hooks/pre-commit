@@ -8,7 +8,7 @@ repo_root=$(git rev-parse --show-toplevel)
 cd "$repo_root"
 
 echo "pre-commit: checking Python syntax..."
-py_files=$(find crawler dispatcher -name '*.py')
+py_files=$(find crawler dispatcher monitor -name '*.py')
 python3 -m py_compile $py_files
 
 echo "pre-commit: linting for undefined names / unused imports..."

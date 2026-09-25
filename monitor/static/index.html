@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Crawl monitor</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page: #f9f9f7;
+    --surface: #fcfcfb;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted: #898781;
+    --grid: #e1e0d9;
+    --axis: #c3c2b7;
+    --border: rgba(11, 11, 11, 0.10);
+    --hover-wash: rgba(11, 11, 11, 0.04);
+    /* categorical slots 1-4, fixed order (validated adjacent, light + dark) */
+    --series-1: #2a78d6;
+    --series-2: #eb6834;
+    --series-3: #1baf7a;
+    --series-4: #eda100;
+    /* status palette, never used for series */
+    --good: #0ca30c;
+    --warning: #fab219;
+    --serious: #ec835a;
+    --critical: #d03b3b;
+    --critical-wash: rgba(208, 59, 59, 0.08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --page: #0d0d0d;
+      --surface: #1a1a19;
+      --text-primary: #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted: #898781;
+      --grid: #2c2c2a;
+      --axis: #383835;
+      --border: rgba(255, 255, 255, 0.10);
+      --hover-wash: rgba(255, 255, 255, 0.05);
+      --series-1: #3987e5;
+      --series-2: #d95926;
+      --series-3: #199e70;
+      --series-4: #c98500;
+      --critical-wash: rgba(208, 59, 59, 0.16);
+    }
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--text-primary);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 1080px; margin: 0 auto; padding: 24px 16px 48px; }
+
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; margin-bottom: 20px; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0; }
+  h2 { font-size: 14px; font-weight: 600; margin: 0 0 12px; }
+  .updated { color: var(--text-muted); font-size: 13px; margin-left: auto; }
+
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 10px 3px 8px; border-radius: 999px;
+    border: 1px solid var(--border); background: var(--surface);
+    font-weight: 600; font-size: 13px;
+  }
+  .badge .icon { width: 16px; height: 16px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: 11px; line-height: 1; }
+
+  .banner {
+    display: none; margin-bottom: 16px; padding: 10px 14px; border-radius: 8px;
+    border: 1px solid var(--critical); background: var(--critical-wash); color: var(--text-primary);
+  }
+  .banner strong { color: var(--critical); }
+
+  .grid { display: grid; gap: 16px; grid-template-columns: repeat(12, 1fr); }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; min-width: 0; }
+  .span-12 { grid-column: span 12; }
+  .span-8 { grid-column: span 8; }
+  .span-6 { grid-column: span 6; }
+  .span-4 { grid-column: span 4; }
+  @media (max-width: 760px) { .span-8, .span-6, .span-4 { grid-column: span 12; } }
+
+  .hero { font-size: 48px; font-weight: 600; line-height: 1.05; }
+  .hero-sub { color: var(--text-secondary); margin-top: 4px; }
+  .muted { color: var(--text-muted); }
+  .secondary { color: var(--text-secondary); }
+
+  .checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .checks li { display: flex; align-items: center; gap: 8px; }
+  .checks .mark { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; color: #fff; flex: none; }
+
+  /* status composition: one stacked bar, 2px surface gaps, rounded outer ends only */
+  .stack { display: flex; gap: 2px; height: 24px; margin: 4px 0 14px; }
+  /* non-zero statuses stay visible even when tiny next to the rest */
+  .stack > div { min-width: 4px; height: 100%; }
+  .stack > div:first-child { border-radius: 4px 0 0 4px; }
+  .stack > div:last-child { border-radius: 0 4px 4px 0; }
+  .stack > div:only-child { border-radius: 4px; }
+  .stack.empty { background: var(--grid); border-radius: 4px; }
+  .legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 16px; }
+  .legend .item { display: flex; gap: 8px; align-items: baseline; }
+  .legend .swatch { width: 10px; height: 10px; border-radius: 2px; flex: none; transform: translateY(1px); }
+  .legend .value { font-size: 20px; font-weight: 600; }
+  .legend .label { color: var(--text-secondary); font-size: 13px; }
+
+  .kv { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 12px; }
+  .kv .value { font-size: 20px; font-weight: 600; }
+  .kv .label { color: var(--text-secondary); font-size: 12px; }
+  @media (max-width: 420px) { .kv { grid-template-columns: repeat(2, 1fr); } }
+  .queue-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 12px; }
+  .queue-head h2 { margin: 0; }
+  code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text-secondary); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-top: 1px solid var(--grid); }
+  th { color: var(--text-muted); font-weight: 500; border-top: none; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+  .chart-wrap { position: relative; }
+  svg.chart { display: block; width: 100%; height: 220px; overflow: visible; }
+  svg.chart text { fill: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .tooltip {
+    position: absolute; pointer-events: none; display: none; white-space: nowrap;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+    padding: 6px 10px; font-size: 12px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  }
+  .tooltip strong { font-size: 14px; }
+  .chart-stats { display: flex; flex-wrap: wrap; gap: 4px 20px; margin-bottom: 8px; color: var(--text-secondary); }
+  .chart-stats strong { color: var(--text-primary); }
+  details { margin-top: 12px; }
+  summary { cursor: pointer; color: var(--text-secondary); font-size: 13px; }
+  details table { margin-top: 8px; }
+  .table-scroll { max-height: 260px; overflow-y: auto; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Crawl monitor</h1>
+    <span class="badge" id="state-badge"><span class="icon" id="state-icon"></span><span id="state-label">Loading…</span></span>
+    <span class="updated" id="updated"></span>
+  </header>
+
+  <div class="banner" id="banner"></div>
+
+  <div class="grid">
+    <section class="card span-4">
+      <h2>Progress</h2>
+      <div class="hero" id="hero-done">–</div>
+      <div class="hero-sub" id="hero-sub">pages scraped</div>
+    </section>
+
+    <section class="card span-8">
+      <h2>Completion checks</h2>
+      <ul class="checks" id="checks"></ul>
+      <p class="muted" id="progress-note" style="margin: 12px 0 0; font-size: 13px;"></p>
+    </section>
+
+    <section class="card span-12">
+      <h2>URLs by scraping status</h2>
+      <div class="stack" id="stack"></div>
+      <div class="legend" id="legend"></div>
+    </section>
+
+    <section class="card span-12">
+      <h2>Pages scraped per minute</h2>
+      <div class="chart-stats" id="chart-stats"></div>
+      <div class="chart-wrap" id="chart-wrap">
+        <svg class="chart" id="chart" role="img" aria-label="Pages scraped per minute"></svg>
+        <div class="tooltip" id="tooltip"></div>
+      </div>
+      <details>
+        <summary>Show as table</summary>
+        <div class="table-scroll"><table id="minute-table"></table></div>
+      </details>
+    </section>
+
+    <section class="card span-6" id="queue-crawl"></section>
+    <section class="card span-6" id="queue-dispatcher"></section>
+  </div>
+</main>
+
+<script>
+const STATUS_SERIES = [
+  { key: "done", label: "Done", color: "var(--series-1)" },
+  { key: "in_progress", label: "In progress", color: "var(--series-2)" },
+  { key: "queued", label: "Queued", color: "var(--series-3)" },
+  { key: "failed", label: "Failed", color: "var(--series-4)" },
+];
+const STATES = {
+  complete:    { label: "Complete",    color: "var(--good)",     icon: "✓" },
+  running:     { label: "Running",     color: "var(--series-1)", icon: "›" },
+  stalled:     { label: "Stalled",     color: "var(--serious)",  icon: "!" },
+  not_started: { label: "Not started", color: "var(--text-muted)", icon: "–" },
+};
+const CHECK_LABELS = {
+  streams_drained: "Both queues drained (nothing waiting or unacknowledged)",
+  no_open_rows: "No URLs queued or in progress",
+  no_retryable_failures: "No failed URLs left to retry",
+};
+const QUEUES = {
+  crawl: { el: "queue-crawl", title: "Crawl queue", desc: "URLs waiting for crawlers" },
+  dispatcher: { el: "queue-dispatcher", title: "Dispatcher queue", desc: "Discovered links waiting for dedup" },
+};
+
+const $ = (id) => document.getElementById(id);
+const nf = new Intl.NumberFormat();
+const fmt = (n) => (n === null || n === undefined ? "–" : nf.format(n));
+const compact = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
+const hhmm = (iso) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+function ago(iso) {
+  const s = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+  return `${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min ago`;
+}
+function duration(ms) {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)} min`;
+  return `${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min`;
+}
+
+let stats = null;
+let fetchError = null;
+let pollMs = 10000;
+
+async function poll() {
+  try {
+    const res = await fetch("/api/stats", { cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    stats = await res.json();
+    fetchError = null;
+    if (stats.config) pollMs = Math.max(2000, stats.config.poll_interval_s * 1000);
+  } catch (e) {
+    fetchError = e.message || String(e);
+  }
+  render();
+  setTimeout(poll, pollMs);
+}
+
+function render() {
+  renderBanner();
+  if (!stats || !stats.collected_at) {
+    $("state-label").textContent = fetchError ? "Unreachable" : "Waiting for first poll…";
+    return;
+  }
+  renderHeader();
+  renderProgress();
+  renderStatus();
+  renderChart();
+  for (const key of Object.keys(QUEUES)) renderQueue(key);
+}
+
+function renderBanner() {
+  const b = $("banner");
+  const msgs = [];
+  if (fetchError) msgs.push(`<strong>Monitor unreachable:</strong> ${esc(fetchError)}. Showing the last data received.`);
+  if (stats && stats.last_error) msgs.push(`<strong>Last poll failed:</strong> ${esc(stats.last_error)}. Figures below may be stale.`);
+  b.innerHTML = msgs.join("<br>");
+  b.style.display = msgs.length ? "block" : "none";
+}
+
+function renderHeader() {
+  const st = STATES[stats.completion.state] || { label: stats.completion.state, color: "var(--text-muted)", icon: "?" };
+  $("state-label").textContent = st.label;
+  $("state-icon").textContent = st.icon;
+  $("state-icon").style.background = st.color;
+  $("updated").textContent = `Updated ${ago(stats.collected_at)} · refreshes every ${Math.round(pollMs / 1000)}s`;
+}
+
+function renderProgress() {
+  const r = stats.rawdata;
+  $("hero-done").textContent = fmt(r.status.done);
+  const pct = r.total ? ((r.status.done / r.total) * 100).toFixed(1) : "0";
+  $("hero-sub").textContent = `pages scraped of ${fmt(r.total)} known URLs (${pct}%)`;
+
+  const c = stats.completion;
+  $("checks").innerHTML = Object.entries(c.conditions).map(([k, ok]) => `
+    <li><span class="mark" style="background:${ok ? "var(--good)" : "var(--text-muted)"}" aria-hidden="true">${ok ? "✓" : "✕"}</span>
+    <span>${esc(CHECK_LABELS[k] || k)}</span><span class="muted">${ok ? "yes" : "no"}</span></li>`).join("");
+
+  const since = Date.now() - new Date(c.last_progress_at).getTime();
+  $("progress-note").textContent =
+    `Last change ${ago(c.last_progress_at)}. A crawl that isn't complete counts as stalled after ${duration(c.stall_after_s * 1000)} without any change`
+    + (c.state === "running" && since > 60000 ? ` (${duration(Math.max(0, c.stall_after_s * 1000 - since))} to go).` : ".");
+}
+
+function renderStatus() {
+  const r = stats.rawdata;
+  const stack = $("stack");
+  const parts = STATUS_SERIES.filter((s) => r.status[s.key] > 0);
+  stack.className = parts.length ? "stack" : "stack empty";
+  stack.innerHTML = parts.map((s) =>
+    `<div style="flex:${r.status[s.key]} 1 0; background:${s.color}" title="${s.label}: ${fmt(r.status[s.key])}"></div>`).join("");
+
+  $("legend").innerHTML = STATUS_SERIES.map((s) => {
+    const n = r.status[s.key];
+    const pct = r.total ? ` · ${((n / r.total) * 100).toFixed(1)}%` : "";
+    let extra = "";
+    if (s.key === "failed") extra = `<div class="label">${fmt(r.failed_retryable)} will retry · ${fmt(r.failed_exhausted)} gave up (≥ ${stats.config.retry_max_attempts} attempts)</div>`;
+    return `<div class="item"><span class="swatch" style="background:${s.color}"></span>
+      <div><div class="value">${fmt(n)}</div><div class="label">${s.label}${pct}</div>${extra}</div></div>`;
+  }).join("");
+}
+
+function niceMax(v) {
+  if (v <= 4) return 4;
+  const pow = Math.pow(10, Math.floor(Math.log10(v)));
+  for (const m of [1, 2, 2.5, 5, 10]) if (m * pow >= v) return m * pow;
+  return 10 * pow;
+}
+
+function renderChart() {
+  const series = stats.per_minute;
+  const values = series.map((m) => m.scraped);
+  const complete = values.slice(0, -1); // the last minute is still in progress
+  const last5 = complete.slice(-5);
+  const avg5 = last5.length ? last5.reduce((a, b) => a + b, 0) / last5.length : 0;
+  const total = values.reduce((a, b) => a + b, 0);
+  $("chart-stats").innerHTML =
+    `<span>Last 5 min: <strong>${avg5.toFixed(1)}</strong> pages/min</span>` +
+    `<span>Last ${series.length} min: <strong>${fmt(total)}</strong> pages</span>` +
+    `<span>Peak: <strong>${fmt(Math.max(0, ...values))}</strong> pages/min</span>`;
+
+  const svg = $("chart");
+  const W = svg.clientWidth || 600, H = 220;
+  const pad = { l: 44, r: 8, t: 8, b: 24 };
+  const iw = W - pad.l - pad.r, ih = H - pad.t - pad.b;
+  const ymax = niceMax(Math.max(...values, 0));
+  const slot = iw / series.length;
+  const bw = Math.min(24, Math.max(2, slot - 2));
+  const y = (v) => pad.t + ih - (v / ymax) * ih;
+
+  let out = "";
+  for (let i = 0; i <= 4; i++) {
+    const v = (ymax / 4) * i, yy = y(v);
+    out += `<line x1="${pad.l}" x2="${W - pad.r}" y1="${yy}" y2="${yy}" stroke="${i === 0 ? "var(--axis)" : "var(--grid)"}" stroke-width="1"/>`;
+    out += `<text x="${pad.l - 8}" y="${yy + 4}" text-anchor="end">${compact.format(v)}</text>`;
+  }
+  series.forEach((m, i) => {
+    const x = pad.l + i * slot + (slot - bw) / 2;
+    const minsAgo = series.length - 1 - i;
+    if (minsAgo % 15 === 0) {
+      out += `<text x="${x + bw / 2}" y="${H - 6}" text-anchor="middle">${minsAgo === 0 ? "now" : hhmm(m.minute)}</text>`;
+    }
+    if (m.scraped > 0) {
+      const top = y(m.scraped), h = pad.t + ih - top, r = Math.min(4, h, bw / 2);
+      // 4px rounded data-end, square at the baseline
+      out += `<path fill="var(--series-1)" opacity="${minsAgo === 0 ? 0.55 : 1}" d="M${x},${pad.t + ih} V${top + r} Q${x},${top} ${x + r},${top} H${x + bw - r} Q${x + bw},${top} ${x + bw},${top + r} V${pad.t + ih} Z"/>`;
+    }
+    out += `<rect class="hit" data-i="${i}" x="${pad.l + i * slot}" y="${pad.t}" width="${slot}" height="${ih}" fill="transparent"/>`;
+  });
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.innerHTML = out;
+
+  const tip = $("tooltip");
+  svg.querySelectorAll("rect.hit").forEach((rect) => {
+    rect.addEventListener("mouseenter", () => {
+      const i = +rect.dataset.i, m = series[i];
+      rect.setAttribute("fill", "var(--hover-wash)");
+      const partial = i === series.length - 1 ? " (in progress)" : "";
+      tip.innerHTML = `<div class="muted">${hhmm(m.minute)}${partial}</div><strong>${fmt(m.scraped)}</strong> pages scraped`;
+      tip.style.display = "block";
+      const cx = pad.l + (i + 0.5) * slot;
+      const left = Math.min(Math.max(cx - tip.offsetWidth / 2, 0), W - tip.offsetWidth);
+      tip.style.left = `${left}px`;
+      tip.style.top = `${Math.max(0, y(m.scraped) - tip.offsetHeight - 8)}px`;
+    });
+    rect.addEventListener("mouseleave", () => { rect.setAttribute("fill", "transparent"); tip.style.display = "none"; });
+  });
+
+  $("minute-table").innerHTML = `<tr><th>Minute</th><th class="num">Pages scraped</th></tr>` +
+    [...series].reverse().map((m, i) => `<tr><td>${hhmm(m.minute)}${i === 0 ? " (in progress)" : ""}</td><td class="num">${fmt(m.scraped)}</td></tr>`).join("");
+}
+
+function renderQueue(key) {
+  const q = QUEUES[key], s = stats.streams[key], el = $(q.el);
+  const head = `<div class="queue-head"><h2>${q.title}</h2><code>${esc(s.name)}</code></div>`;
+  if (!s.exists) { el.innerHTML = head + `<p class="muted">Stream doesn't exist yet. The dispatcher creates it on startup.</p>`; return; }
+  const g = s.group;
+  if (!g) { el.innerHTML = head + `<p class="muted">Consumer group not created yet. ${fmt(s.length)} entries in the stream.</p>`; return; }
+
+  const consumers = g.consumers.length
+    ? `<table><tr><th>Consumer</th><th class="num">Claimed</th><th class="num">Idle</th></tr>` +
+      g.consumers.map((c) => `<tr><td><code>${esc(c.name)}</code></td><td class="num">${fmt(c.pending)}</td><td class="num">${duration(c.idle_ms)}</td></tr>`).join("") +
+      `</table>`
+    : `<p class="muted">No consumers connected.</p>`;
+
+  el.innerHTML = head + `<p class="secondary" style="margin:-6px 0 12px;font-size:13px">${q.desc}</p>
+    <div class="kv">
+      <div><div class="value">${fmt(g.lag)}</div><div class="label">Waiting</div></div>
+      <div><div class="value">${fmt(g.pending)}</div><div class="label">Claimed, not acked</div></div>
+      <div><div class="value">${fmt(g.acked)}</div><div class="label">Acked</div></div>
+      <div><div class="value">${fmt(s.entries_added)}</div><div class="label">Added in total</div></div>
+    </div>` + consumers;
+}
+
+let resizeTimer;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => stats && stats.per_minute && renderChart(), 150);
+});
+setInterval(() => stats && stats.collected_at && renderHeader(), 1000);
+poll();
+</script>
+</body>
+</html>

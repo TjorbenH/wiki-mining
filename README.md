@@ -1,6 +1,6 @@
 # wiki-mining
 
-A distributed web crawler that scrapes HTML, stores it in object storage, and builds a link graph across pages. Designed for wiki-style sites where crawling should stay within a restricted domain range. The crawler is really only suited for static webpages as it can only capture the raw html. Any dynamic pages haven't been tested or even considered yet.
+A distributed web crawler that scrapes HTML, stores it in object storage, and builds a link graph across pages. Designed for wiki-style sites where crawling should stay within a restricted domain range. The crawler is really only suited for static webpages as it can only capture the raw HTML. Any dynamic pages haven't been tested or even considered yet.
 
 ## Architecture
 
@@ -11,9 +11,12 @@ Two Python services coordinate over Redis and persist to PostgreSQL and MinIO:
 
 Redis carries two channels, both Redis Streams with consumer groups: `crawl_stream` (dispatcher → crawler) and `unprocessed_links` (crawler → dispatcher).
 
-`seed.py` is used to enter starting URLs into the system and also to whitelist the needed domains after fetching and evaluating their `robots.txt`. It's important to run this script only when the Crawlers are not running (eg. on first start of a crawl) because they rely on the whitelist and only load it on startup.
+`seed.py` is used to enter starting URLs into the system and also to whitelist the needed domains after fetching and evaluating their `robots.txt`. It's important to run this script only when the crawlers are not running (e.g. on first start of a crawl) because they rely on the whitelist and only load it on startup.
 
-Admin interfaces: **Adminer** at `localhost:8080` (PostgreSQL), **MinIO console** at `localhost:9001`.
+Interfaces into the system:
+- Admin interfaces: **Adminer** at `localhost:8080` (PostgreSQL)
+- **MinIO console** at `localhost:9001`
+- Monitoring frontend: **Monitor** at `localhost:5000` (`MONITOR_PORT`)
 
 ## Disclaimer 
 This crawler is a passion project and more of a technical challenge than actual software. 
@@ -37,11 +40,14 @@ DB_PORT=5432
 DB_NAME=scraped_data
 DB_USER=
 DB_PASSWORD=
+# read-only role for the monitoring interface 
+MONITOR_DB_USER=monitor
+MONITOR_DB_PASSWORD=
+# port of the monitoring web interface (host and container side, bound to localhost)
+MONITOR_PORT=5000
 
 MINIO_ROOT_USER=
 MINIO_ROOT_PASSWORD=
-MINIO_ACCESS_KEY=
-MINIO_SECRET_KEY=
 MINIO_BUCKET=raw-html
 
 REDIS_HOST=queue
@@ -59,10 +65,10 @@ RATE_LIMIT=0.5
 CRAWLER_USER_AGENT=*
 
 # dispatcher tunables
-# retries per URL before it's given up on (crawl completion detection will rely on this too)
+# retries per URL before it's given up on
 RECLAIM_RETRY_MAX_ATTEMPTS=5
 
-# LOG_LEVEL is shared by crawler, dispatcher, and seed.py (DEBUG, INFO, WARNING, ERROR)
+# LOG_LEVEL is shared across the entire system (DEBUG, INFO, WARNING, ERROR)
 LOG_LEVEL=INFO
 ```
 
@@ -78,6 +84,10 @@ LOG_LEVEL=INFO
 - `-l, --log-level LEVEL` override `LOG_LEVEL` for this run only, without editing `.env`
 - `-s, --seed URL [URL ...]` seed one or more starting URLs, then start the crawler once seeding succeeds. Without `--seed`, `run.sh` brings up everything except the crawler (see Manual Start below for starting it yourself)
 - `--logs` / `--no-logs` toggle the on-the-fly log capture described below (off by default)
+
+### Monitoring
+There is a simple web monitoring console implemented on `localhost:5000` (change it with `MONITOR_PORT` in `.env`) which provides useful information on the state of the crawl as well as completion detection to indicate whether the web-crawling has reached a quiescent state. It is read-only and does not interfere with the actual crawling in any way.
+
 
 ### Manual Start
 
@@ -117,7 +127,7 @@ docker compose up -d
 docker compose up -d crawler   # once you've (re)seeded, if needed
 ```
 
-> **Note:** because `crawler` is seperated into its own compose profile, it's excluded from `down`, `build`, and `config` unless you pass `--profile crawler`.
+> **Note:** because `crawler` is separated into its own compose profile, it's excluded from `down`, `build`, and `config` unless you pass `--profile crawler`.
 
 Control individual services:
 
@@ -152,7 +162,7 @@ python3 -m venv .venv
 
 ## Extending the crawler
 
-`ScraperWorker` (`crawler/main.py`) is used directly. By default `_filter_urls` keeps only discovered links on domains whitelisted by `seed.py` and honours each domain's cached `robots.txt`. Subclass it and override either hook for site-specific behavior, then point `crawler/main.py` at your subclass:
+`ScraperWorker` is used directly. By default `_filter_urls` keeps only discovered links on domains whitelisted by `seed.py` and honours each domain's cached `robots.txt`. Subclass it and override either hook for site-specific behavior, then point `crawler/main.py` at your subclass:
 
 - `_process_html(html: str) -> str`: transform HTML before it is saved to MinIO
 - `_filter_urls(urls: set[str]) -> set[str]`: restrict which discovered URLs are forwarded to the dispatcher (call `super()._filter_urls()` to keep the whitelist/robots.txt behavior)
