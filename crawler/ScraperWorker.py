@@ -3,7 +3,7 @@ import hashlib
 import io
 import json
 import logging
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urldefrag, urlparse
 from urllib.robotparser import RobotFileParser
  
 import aiohttp
@@ -26,9 +26,9 @@ class ScraperWorker:
     """
     
     def __init__(
-        self, 
-        minio_client: Minio, 
-        minio_bucket: str, 
+        self,
+        minio_client: Minio,
+        minio_bucket: str,
         redis_client: Redis,
         crawl_stream: str,
         crawl_group: str,
@@ -38,7 +38,10 @@ class ScraperWorker:
         hostname: str,
         headers: dict = None,
         minio_upload_attempts: int = 3,
-        minio_retry_backoff_seconds: float = 0.5
+        minio_retry_backoff_seconds: float = 0.5,
+        request_timeout_seconds: int = 30,
+        connect_timeout_seconds: int = 10,
+        max_connections_per_host: int = 2,
     ):  
         self.minio_client = minio_client
         self.minio_bucket = minio_bucket
@@ -59,6 +62,10 @@ class ScraperWorker:
         # configs for the minio upload retries
         self.minio_upload_attempts = minio_upload_attempts
         self.minio_retry_backoff_seconds = minio_retry_backoff_seconds
+
+        self.request_timeout_seconds = request_timeout_seconds
+        self.connect_timeout_seconds = connect_timeout_seconds
+        self.max_connections_per_host = max_connections_per_host
         
         # Event to manage the worker threads
         self.stop_event = asyncio.Event()
@@ -107,7 +114,16 @@ class ScraperWorker:
             await self._ensure_stream_group(stream=self.crawl_stream, group=self.crawl_group)
             await self._ensure_stream_group(stream=self.dispatcher_stream, group=self.dispatcher_group)
             await self._load_whitelists()
-            self.session = aiohttp.ClientSession(headers=self._headers)
+            connector = aiohttp.TCPConnector(limit_per_host=self.max_connections_per_host)
+            timeout = aiohttp.ClientTimeout(
+                total=self.request_timeout_seconds,
+                connect=self.connect_timeout_seconds,
+            )
+            self.session = aiohttp.ClientSession(
+                headers=self._headers,
+                connector=connector,
+                timeout=timeout,
+            )
             logger.info(f"Starting {concurrency_limit} worker threads ...")
             try:
                 async with asyncio.TaskGroup() as tg:
@@ -132,6 +148,7 @@ class ScraperWorker:
         while not self.stop_event.is_set():
             payload = None
             msg_id = None
+            should_ack = False
             try:
                 popped = await self._pop_url(consumer_name)
                 if popped is None:
@@ -139,6 +156,9 @@ class ScraperWorker:
                 msg_id, payload = popped
 
                 logger.debug(f"{consumer_name} processing: {payload['url']}")
+
+                await self.database.mark_in_progress(payload["id"])
+                should_ack = True
 
                 await self._process_url(payload["id"], payload["url"])
 
@@ -149,9 +169,7 @@ class ScraperWorker:
                 await asyncio.sleep(rate_limit) # delay also when an error is caught
                 continue
             finally:
-                # acking the url regardless of success status is no issue since the crawling_status field in the DB tracks the status
-                # leaving it unacked simply cloggs up the redis queue
-                if msg_id is not None:
+                if msg_id is not None and should_ack:
                     await self.redis_client.xack(self.crawl_stream, self.crawl_group, msg_id)
 
             await asyncio.sleep(rate_limit) # basic per item rate limiting
@@ -181,9 +199,8 @@ class ScraperWorker:
     async def _process_url(self, url_id: int, url: str) -> None:
         """ Run the processing pipline for a single url.
         Fetch the website -> process the html -> save the html -> discover and filter new urls -> write back urls to the dispatcher
+        Assumes mark_in_progress has already been called by the caller (_worker_loop).
         """
-        await self.database.mark_in_progress(url_id)
-        
         async def fail_stage(url_id: int, url: str, stage: str) -> None: # Helper Function to avoid redundant debug messages
             logger.error(f"[{stage}] failed for {url} (id={url_id})")
             await self.database.mark_failed(url_id)
@@ -261,26 +278,28 @@ class ScraperWorker:
                 await asyncio.to_thread(upload)
                 break
             except Exception:
-                if attempt == self.minio_upload_attempts:
+                if attempt == self.minio_upload_attempts - 1:
                     raise
-                logger.warning(f"MinIO upload attempt {attempt}/{self.minio_upload_attempts} failed for {storage_key}, retrying...")
+                logger.warning(f"MinIO upload attempt {attempt + 1}/{self.minio_upload_attempts} failed for {storage_key}, retrying...")
                 await asyncio.sleep(self.minio_retry_backoff_seconds * attempt)
 
         logger.debug(f"Saved in MinIO: {storage_key}")
         return storage_key
         
     def _extract_urls(self, html: str, base_url: str) -> set[str]:
-        """ Parse HTML and extract all hyperlink URLs."""    
+        """ Parse HTML and extract all hyperlink URLs."""
         soup = bs4.BeautifulSoup(html, "lxml")
         links = set()
-        
+
         for tag in soup.find_all("a", href=True):
             href = tag["href"].strip()
             # resolve relative URLs
             if base_url:
                 href = urljoin(base_url, href)
-            links.add(href)
-             
+            href, _ = urldefrag(href)
+            if href:
+                links.add(href)
+
         return links
     
     async def _process_html(self, html:str) -> str:

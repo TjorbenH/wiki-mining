@@ -19,6 +19,7 @@ from urllib.robotparser import RobotFileParser
 import aiohttp
 import asyncpg
 from redis.asyncio import Redis
+from redis.exceptions import ResponseError
 
 _LOG_LEVEL_NAME = os.environ.get('LOG_LEVEL', 'INFO').upper()
 LOG_LEVEL = getattr(logging, _LOG_LEVEL_NAME, logging.INFO)
@@ -28,6 +29,7 @@ if not isinstance(getattr(logging, _LOG_LEVEL_NAME, None), int):
 
 REDIS_HOST = os.environ.get('REDIS_HOST', 'localhost')
 REDIS_CRAWL_STREAM=os.environ.get('REDIS_CRAWL_STREAM', 'crawl_stream')
+REDIS_CRAWL_GROUP=os.environ.get('REDIS_CRAWL_GROUP', 'crawlers')
 
 
 DB_HOST = os.environ.get('DB_HOST', 'localhost')
@@ -90,7 +92,8 @@ async def _fetch_robots(session: aiohttp.ClientSession, domain: str) -> tuple[bo
 
     parser = RobotFileParser()
     parser.parse(robots_text.splitlines() if robots_text is not None else [])
-    if not parser.can_fetch(USER_AGENT, f"https://{domain}/"):
+    if not parser.can_fetch(USER_AGENT, f"https://{domain}/") or \
+       not parser.can_fetch(USER_AGENT, f"http://{domain}/"):
         logging.warning(f"robots.txt for {domain!r} disallows {USER_AGENT!r} entirely; not whitelisting.")
         return False, None
 
@@ -184,6 +187,15 @@ async def seed(urls: list[str]) -> None:
 
         new_rows = [row for row in rows if row["is_new"]]
         if new_rows:
+            try:
+                await redis_client.xgroup_create(
+                    name=REDIS_CRAWL_STREAM, groupname=REDIS_CRAWL_GROUP,
+                    id="0", mkstream=True,
+                )
+            except ResponseError as e:
+                if "BUSYGROUP" not in str(e):
+                    raise
+
             async with redis_client.pipeline(transaction=True) as pipe:
                 for row in new_rows:
                     pipe.xadd(REDIS_CRAWL_STREAM, {"id": str(row["id"]), "url": row["link"]})
@@ -200,9 +212,17 @@ async def seed(urls: list[str]) -> None:
 
 def _canonicalize(url: str) -> str:
     p = urlparse(url)
+    scheme = p.scheme.lower()
+    hostname = (p.hostname or "").lower()
+    port = p.port
+    default_ports = {"http": 80, "https": 443}
+    if port and port != default_ports.get(scheme):
+        netloc = f"{hostname}:{port}"
+    else:
+        netloc = hostname
     path = p.path.rstrip("/") or "/"
     query = urlencode(sorted(parse_qsl(p.query)))
-    return urlunparse((p.scheme.lower(), p.netloc.lower(), path, "", query, ""))
+    return urlunparse((scheme, netloc, path, "", query, ""))
 
 
 if __name__ == "__main__":

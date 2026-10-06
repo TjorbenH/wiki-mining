@@ -149,7 +149,12 @@ class QueueManager:
                 await self.redis_client.xack(self.dispatcher_stream, self.dispatcher_group, *msg_ids)
 
         # flatten origin_id:[outgoing_links] into pairs of (origin_id, link), canonicalizing each URL
-        pairs: list[tuple[int, str]] = [(entry["origin_id"], self._canonicalize(url)) for _, entry in batch for url in entry.get("urls", [])]
+        pairs: list[tuple[int, str]] = [
+            (entry["origin_id"], self._canonicalize(url))
+            for _, entry in batch
+            for url in entry.get("urls", [])
+        ]
+        pairs = [(o, u) for o, u in pairs if urlparse(u).netloc]
         if not pairs:
             logger.warning(f"Drained {len(batch)} entries from {self.dispatcher_stream} but all had empty URL lists")
             await ack(msg_ids)
@@ -169,12 +174,13 @@ class QueueManager:
                         INSERT INTO RawData (link)
                         SELECT unnest($1::text[])
                         ON CONFLICT (link) DO UPDATE SET link = EXCLUDED.link
-                        RETURNING id, link, (xmax = 0) AS is_new;
+                        RETURNING id, link, (xmax = 0) AS is_new, scraping_status;
                         """,
                         urls,
                     )
                     url_to_id = {row["link"]: row["id"] for row in rows}
-                    new_rows = [row for row in rows if row["is_new"]]
+                    # Re-push rows that are genuinely new OR already in the DB but still 'queued' with no Redis entry (happens when a previous push failed
+                    new_rows = [row for row in rows if row["is_new"] or row["scraping_status"] == "queued"]
 
                     # bulk edge insert
                     origin_ids = [origin_id for origin_id, url in pairs if url in url_to_id]
@@ -183,7 +189,8 @@ class QueueManager:
                         await conn.execute(
                             """
                             INSERT INTO Links (origin_id, destination_id)
-                            SELECT * FROM unnest($1::bigint[], $2::bigint[])
+                            SELECT o, d FROM unnest($1::bigint[], $2::bigint[]) AS t(o, d)
+                            WHERE o IN (SELECT id FROM RawData WHERE id = ANY($1::bigint[]))
                             ON CONFLICT DO NOTHING;
                             """,
                             origin_ids,
@@ -221,8 +228,16 @@ class QueueManager:
         """Normalize a URL so semantically identical URLs map to the same string"""
         try:
             p = urlparse(url)
+            scheme = p.scheme.lower()
+            hostname = (p.hostname or "").lower()
+            port = p.port
+            default_ports = {"http": 80, "https": 443}
+            if port and port != default_ports.get(scheme):
+                netloc = f"{hostname}:{port}"
+            else:
+                netloc = hostname
             path = p.path.rstrip("/") or "/"
             query = urlencode(sorted(parse_qsl(p.query)))
-            return urlunparse((p.scheme.lower(), p.netloc.lower(), path, "", query, ""))
+            return urlunparse((scheme, netloc, path, "", query, ""))
         except Exception:
             return url

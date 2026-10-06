@@ -83,9 +83,10 @@ async def main():
         crawl_group=REDIS_CRAWL_GROUP,
         dispatcher_stream=REDIS_DISPATCHER_STREAM,
         dispatcher_group=REDIS_DISPATCHER_GROUP,
-        pg_pool = pg_pool,
+        pg_pool=pg_pool,
         hostname=CONTAINER_NAME,
-        headers={'User-Agent': CRAWLER_USER_AGENT}
+        headers={'User-Agent': CRAWLER_USER_AGENT},
+        max_connections_per_host=1,
     )
 
     scraper_task = asyncio.create_task(scraper.run(concurrency_limit=CONCURRENCY_LIMIT, rate_limit=RATE_LIMIT))
