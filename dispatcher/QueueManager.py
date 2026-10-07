@@ -174,13 +174,12 @@ class QueueManager:
                         INSERT INTO RawData (link)
                         SELECT unnest($1::text[])
                         ON CONFLICT (link) DO UPDATE SET link = EXCLUDED.link
-                        RETURNING id, link, (xmax = 0) AS is_new, scraping_status;
+                        RETURNING id, link, (xmax = 0) AS is_new;
                         """,
                         urls,
                     )
                     url_to_id = {row["link"]: row["id"] for row in rows}
-                    # Re-push rows that are genuinely new OR already in the DB but still 'queued' with no Redis entry (happens when a previous push failed
-                    new_rows = [row for row in rows if row["is_new"] or row["scraping_status"] == "queued"]
+                    new_rows = [row for row in rows if row["is_new"]]
 
                     # bulk edge insert
                     origin_ids = [origin_id for origin_id, url in pairs if url in url_to_id]

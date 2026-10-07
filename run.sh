@@ -83,8 +83,11 @@ if $LOG_CAPTURE; then
     ts=$(date +%Y%m%d-%H%M%S)
     docker compose logs -f --no-color dispatcher > "logs/dispatcher-$ts.log" &
     dispatcher_pid=$!
-    echo "$dispatcher_pid" > "logs/.run-$ts.pids"
+    docker compose logs -f --no-color monitor > "logs/monitor-$ts.log" &
+    monitor_pid=$!
+    echo "$dispatcher_pid $monitor_pid" > "logs/.run-$ts.pids"
     echo "==> Logging dispatcher to logs/dispatcher-$ts.log"
+    echo "==> Logging monitor    to logs/monitor-$ts.log"
 fi
 
 if [[ ${#SEED_URLS[@]} -gt 0 ]]; then
@@ -109,9 +112,9 @@ if [[ ${#SEED_URLS[@]} -gt 0 ]]; then
     if $LOG_CAPTURE; then
         docker compose logs -f --no-color crawler > "logs/crawler-$ts.log" &
         crawler_pid=$!
-        echo "$dispatcher_pid $crawler_pid" > "logs/.run-$ts.pids"
+        echo "$dispatcher_pid $monitor_pid $crawler_pid" > "logs/.run-$ts.pids"
         echo "==> Logging crawler to logs/crawler-$ts.log"
-        echo "    Stop logging with: kill $dispatcher_pid $crawler_pid  (also saved in logs/.run-$ts.pids)"
+        echo "    Stop logging with: kill $dispatcher_pid $monitor_pid $crawler_pid  (also saved in logs/.run-$ts.pids)"
     fi
 else
     echo "==> No --seed given: crawler NOT started (it needs at least one whitelisted domain first)."

@@ -9,10 +9,10 @@ from minio import Minio
 from ScraperWorker import ScraperWorker
 
 # environment variables
-MINIO_ENDPOINT = os.environ.get('MINIO_ENDPOINT', 'localhost:9000')
-MINIO_ACCESS = os.environ.get('MINIO_ACCESS_KEY', 'admin')
-MINIO_SECRET = os.environ.get('MINIO_SECRET_KEY', 'admin')
-MINIO_BUCKET = os.environ.get('MINIO_BUCKET', 'raw-html')
+S3_ENDPOINT = os.environ.get('S3_ENDPOINT') or 'localhost:8333'
+S3_ACCESS = os.environ.get('S3_ACCESS_KEY') or 'admin'
+S3_SECRET = os.environ.get('S3_SECRET_KEY') or 'admin'
+S3_BUCKET = os.environ.get('S3_BUCKET') or 'raw-html'
 
 CONTAINER_NAME = os.environ.get('HOSTNAME', 'unknown')
 
@@ -45,7 +45,7 @@ async def main():
     logging.info(
         f"Config: DB={DB_HOST}:{DB_PORT}/{DB_NAME} user={DB_USER} | "
         f"Redis={REDIS_HOST} crawl_stream={REDIS_CRAWL_STREAM} crawl_group={REDIS_CRAWL_GROUP} dispatcher_stream={REDIS_DISPATCHER_STREAM} dispatcher_group={REDIS_DISPATCHER_GROUP} | "
-        f"MinIO={MINIO_ENDPOINT} bucket={MINIO_BUCKET} | "
+        f"S3={S3_ENDPOINT} bucket={S3_BUCKET} | "
         f"concurrency={CONCURRENCY_LIMIT} rate_limit={RATE_LIMIT}s user_agent={CRAWLER_USER_AGENT!r}"
     )
 
@@ -55,15 +55,15 @@ async def main():
     )
     
     s3_client = Minio(
-        MINIO_ENDPOINT,
-        access_key=MINIO_ACCESS,
-        secret_key=MINIO_SECRET,
+        S3_ENDPOINT,
+        access_key=S3_ACCESS,
+        secret_key=S3_SECRET,
         secure=False
     )
 
-    if not s3_client.bucket_exists(MINIO_BUCKET):
-        logging.error(f"MinIO bucket does not exist: {MINIO_BUCKET}")
-        exit()
+    if not s3_client.bucket_exists(S3_BUCKET):
+        s3_client.make_bucket(S3_BUCKET)
+        logging.info(f"Created bucket: {S3_BUCKET}")
         
     pg_pool = await asyncpg.create_pool(
         host=DB_HOST,
@@ -76,8 +76,8 @@ async def main():
     )
 
     scraper = ScraperWorker(
-        minio_client=s3_client,
-        minio_bucket=MINIO_BUCKET,
+        s3_client=s3_client,
+        s3_bucket=S3_BUCKET,
         redis_client=redis_client,
         crawl_stream=REDIS_CRAWL_STREAM,
         crawl_group=REDIS_CRAWL_GROUP,

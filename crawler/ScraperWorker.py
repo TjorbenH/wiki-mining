@@ -27,8 +27,8 @@ class ScraperWorker:
     
     def __init__(
         self,
-        minio_client: Minio,
-        minio_bucket: str,
+        s3_client: Minio,
+        s3_bucket: str,
         redis_client: Redis,
         crawl_stream: str,
         crawl_group: str,
@@ -37,15 +37,15 @@ class ScraperWorker:
         pg_pool: asyncpg.Pool,
         hostname: str,
         headers: dict = None,
-        minio_upload_attempts: int = 3,
-        minio_retry_backoff_seconds: float = 0.5,
+        upload_attempts: int = 3,
+        upload_retry_backoff_seconds: float = 0.5,
         request_timeout_seconds: int = 30,
         connect_timeout_seconds: int = 10,
         max_connections_per_host: int = 2,
-    ):  
-        self.minio_client = minio_client
-        self.minio_bucket = minio_bucket
-        
+    ):
+        self.s3_client = s3_client
+        self.s3_bucket = s3_bucket
+
         self.redis_client = redis_client
         self.crawl_stream = crawl_stream
         self.crawl_group = crawl_group 
@@ -59,9 +59,9 @@ class ScraperWorker:
         
         self._headers = headers
         
-        # configs for the minio upload retries
-        self.minio_upload_attempts = minio_upload_attempts
-        self.minio_retry_backoff_seconds = minio_retry_backoff_seconds
+        # configs for S3 upload retries
+        self.upload_attempts = upload_attempts
+        self.upload_retry_backoff_seconds = upload_retry_backoff_seconds
 
         self.request_timeout_seconds = request_timeout_seconds
         self.connect_timeout_seconds = connect_timeout_seconds
@@ -225,10 +225,10 @@ class ScraperWorker:
             raise
 
         try:
-            storage_key = await self._save_to_minio(url, html_bytes)
+            storage_key = await self._save_to_s3(url, html_bytes)
             await self.database.mark_done(url_id, storage_key, content_hash)
         except Exception:
-            await fail_stage(url_id, url, "minio_upload")
+            await fail_stage(url_id, url, "s3_upload")
             raise
 
         try:
@@ -245,18 +245,18 @@ class ScraperWorker:
             await fail_stage(url_id, url, "redis_writeback")
             raise
 
-    async def _save_to_minio(self, url: str, html_bytes: bytes) -> str:
-        """Uploads the given bytes to MinIO and returns the storage_key (object name) they were stored under.
-        Retries a minio_upload_attempts times on upload failures.
+    async def _save_to_s3(self, url: str, html_bytes: bytes) -> str:
+        """Uploads the given bytes to S3 and returns the storage_key (object name) they were stored under.
+        Retries upload_attempts times on upload failures.
         """
         MAX_STORAGE_KEY_PREFIX_BYTES = 200 # CAREFULL: magic number
-        def truncate_utf8(s: str, max_bytes: int) -> str: 
-            # Helper Function to truncate the object name to stay below minio's 255 byte name limit
+        def truncate_utf8(s: str, max_bytes: int) -> str:
+            # truncate so the total key stays well under the S3 1024-byte key limit
             encoded = s.encode("utf-8")
             if len(encoded) <= max_bytes:
                 return s
             return encoded[:max_bytes].decode("utf-8", errors="ignore")
-        
+
         parsed = urlparse(url)
         url_hash = hashlib.sha256(url.encode()).hexdigest()[:12]
         prefix = f"{parsed.netloc}{parsed.path}".strip("/").replace("/", "_")
@@ -265,25 +265,25 @@ class ScraperWorker:
 
         def upload():
             # a fresh BytesIO per attempt, so a retry always sends the full body from byte 0
-            self.minio_client.put_object(
-                bucket_name=self.minio_bucket,
+            self.s3_client.put_object(
+                bucket_name=self.s3_bucket,
                 object_name=storage_key,
                 data=io.BytesIO(html_bytes),
                 length=len(html_bytes),
                 content_type="text/html"
             )
 
-        for attempt in range(self.minio_upload_attempts):
+        for attempt in range(self.upload_attempts):
             try:
                 await asyncio.to_thread(upload)
                 break
             except Exception:
-                if attempt == self.minio_upload_attempts - 1:
+                if attempt == self.upload_attempts - 1:
                     raise
-                logger.warning(f"MinIO upload attempt {attempt + 1}/{self.minio_upload_attempts} failed for {storage_key}, retrying...")
-                await asyncio.sleep(self.minio_retry_backoff_seconds * attempt)
+                logger.warning(f"S3 upload attempt {attempt + 1}/{self.upload_attempts} failed for {storage_key}, retrying...")
+                await asyncio.sleep(self.upload_retry_backoff_seconds * attempt)
 
-        logger.debug(f"Saved in MinIO: {storage_key}")
+        logger.debug(f"Saved to S3: {storage_key}")
         return storage_key
         
     def _extract_urls(self, html: str, base_url: str) -> set[str]:
