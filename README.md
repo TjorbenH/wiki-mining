@@ -163,10 +163,12 @@ python3 -m venv .venv
 
 ## Extending the crawler
 
-`ScraperWorker` is used directly. By default `_filter_urls` keeps only discovered links on domains whitelisted by `seed.py` and honours each domain's cached `robots.txt`. Subclass it and override either hook for site-specific behavior, then point `crawler/main.py` at your subclass:
+`ScraperWorker` can be used directly. By default `_filter_urls` keeps only discovered links on domains whitelisted by `seed.py` and honours each domain's cached `robots.txt`. Subclass it and override either hook for site-specific behavior, then point `crawler/main.py` at your subclass:
 
 - `_process_html(html: str) -> str`: transform HTML before it is saved to S3
 - `_filter_urls(urls: set[str]) -> set[str]`: restrict which discovered URLs are forwarded to the dispatcher (call `super()._filter_urls()` to keep the whitelist/robots.txt behavior)
+
+**MediaWikiScraperWoker** is a sepcial subclass for WikiMedia pages. Those tend to have a lot more junk pages (Files, Images etc.) than actualy article pages so this class filters them out.
 
 ## AI-Usage
 

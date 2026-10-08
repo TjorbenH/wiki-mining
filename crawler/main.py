@@ -6,7 +6,7 @@ import asyncpg
 from redis.asyncio import Redis
 from minio import Minio
 
-from ScraperWorker import ScraperWorker
+from MediaWikiScraperWorker import MediaWikiScraperWorker
 
 # environment variables
 S3_ENDPOINT = os.environ.get('S3_ENDPOINT') or 'localhost:8333'
@@ -75,7 +75,7 @@ async def main():
         max_size=CONCURRENCY_LIMIT,
     )
 
-    scraper = ScraperWorker(
+    scraper = MediaWikiScraperWorker(
         s3_client=s3_client,
         s3_bucket=S3_BUCKET,
         redis_client=redis_client,
