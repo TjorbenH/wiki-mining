@@ -27,6 +27,8 @@ This crawler is a passion project and more of a technical challenge than actual 
 
 For testing the project in a safe environment I recommend practice websites such as `books.toscrape.com` and others listed in this wonderful [article](https://www.scrapingbee.com/blog/scraper-sites/).
 
+The scraper has been deployed on a real website and scraped 18k pages successfully. 
+
 ### License
 This project runs under the [GNU GPLv3 License](LICENSE).
 
@@ -145,6 +147,24 @@ Follow logs:
 docker compose logs -f
 docker compose logs -f crawler
 ```
+
+### Backup and restore
+
+`scripts/backup.sh` saves a crawl to `~/wiki-mining-backup-<date>-<time>/` or a specified directory. Each backup holds a `pg_dump`, every HTML object as a plain file, raw snapshots of all three volumes, the row counts at backup time, `logs/` and SHA-256 checksums. The crawler and dispatcher are stopped while the data is exported.
+
+```bash
+./scripts/backup.sh                    # backup folder, including .env
+./scripts/backup.sh --archive --no-env # one .tar.gz + .sha256 to transfer, without .env
+```
+
+`scripts/restore.sh` verifies a backup folder or `.tar.gz` and then **replaces** the stack's database, S3 bucket and Redis queue with it. It checks the restored row and object counts against the backup. The crawler is not started.
+
+```bash
+./scripts/restore.sh ~/wiki-mining-backup-2026-10-08-153012
+./scripts/restore.sh --env wiki-mining-backup-2026-10-08-153012.tar.gz   # also take the backup's .env
+```
+
+Either run this script with `--env` (to copy over the .env from the backup) or ensure crucial settings are the same (such as passwords and usernames). Otherwise the restore will not run. See `--help` for details.
 
 ## Contributing
 
