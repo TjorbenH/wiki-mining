@@ -46,7 +46,7 @@ class DataEndpoint:
         self.dispatcher_group = dispatcher_group
 
         self.retry_max_attempts = retry_max_attempts
-        self.poll_interval = poll_interval # delay between to polls
+        self.poll_interval = poll_interval # delay between two polls
         self.history_minutes = history_minutes # how many per minute series are stored
         self.completion_confirm_s = completion_confirm_s # how long the completed state has to be held for it to actually count
         self.stall_after_s = stall_after_s # how long a crawl can have no progress before being called stalled
@@ -104,7 +104,7 @@ class DataEndpoint:
         self.stop_event.set()
 
     def is_healthy(self) -> bool:
-        """ True while the poll loop is still cycling. Database/Redis hickups don't matter here. """
+        """ True while the poll loop is still cycling. Database/Redis hiccups don't matter here. """
         if self.last_cycle_at is None:
             return False
         return time.monotonic() - self.last_cycle_at < 3 * self.poll_interval + 30

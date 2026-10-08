@@ -3,7 +3,7 @@
 CREATE TABLE IF NOT EXISTS RawData (
     id BIGSERIAL PRIMARY KEY,
     link TEXT UNIQUE NOT NULL,
-    storage_key TEXT, -- path to the corresponding MINIO object
+    storage_key TEXT, -- path to the corresponding S3 object
     content_hash VARCHAR(64), -- to ensure data integrity and help de-duplicate
     scraping_status TEXT NOT NULL DEFAULT 'queued'
         CHECK (scraping_status IN ('queued', 'in_progress', 'done', 'failed')), -- ensure a failed scraping attempt doesn't lose the link but retries later
@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS Links (
 
 CREATE INDEX idx_rawdata_status_updated ON RawData (scraping_status, updated_at);
 
--- Domain whitelist with a corresponding robot.txt entry 
+-- Domain whitelist with a corresponding robots.txt entry 
 -- Crawlers load this table once at startup and never recheck it.
 CREATE TABLE IF NOT EXISTS DomainsWhitelist (
     domain TEXT PRIMARY KEY,

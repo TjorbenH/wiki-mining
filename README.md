@@ -18,8 +18,8 @@ Interfaces into the system:
 - **SeaweedFS web UI** at `localhost:9333`
 - Monitoring frontend: **Monitor** at `localhost:5000` (`MONITOR_PORT`)
 
-## Disclaimer 
-This crawler is a passion project and more of a technical challenge than actual software. 
+## Disclaimer
+This crawler is a passion project and more of a technical challenge than actual software.
 
 **Before pointing this at any site, check that site's Terms of Service, `robots.txt`, and any other policies.** I'm not liable for how anyone uses this project, including scraping a site in a way that violates rules.
 
@@ -27,7 +27,7 @@ This crawler is a passion project and more of a technical challenge than actual 
 
 For testing the project in a safe environment I recommend practice websites such as `books.toscrape.com` and others listed in this wonderful [article](https://www.scrapingbee.com/blog/scraper-sites/).
 
-The scraper has been deployed on a real website and scraped 18k pages successfully. 
+The scraper has been deployed on a real website and scraped 18k pages successfully.
 
 ### License
 This project runs under the [GNU GPLv3 License](LICENSE).
@@ -42,7 +42,7 @@ DB_PORT=5432
 DB_NAME=scraped_data
 DB_USER=
 DB_PASSWORD=
-# read-only role for the monitoring interface 
+# read-only role for the monitoring interface
 MONITOR_DB_USER=monitor
 MONITOR_DB_PASSWORD=
 # port of the monitoring web interface (host and container side, bound to localhost)
@@ -90,7 +90,6 @@ LOG_LEVEL=INFO
 
 ### Monitoring
 There is a simple web monitoring console implemented on `localhost:5000` (change it with `MONITOR_PORT` in `.env`) which provides useful information on the state of the crawl as well as completion detection to indicate whether the web-crawling has reached a quiescent state. It is read-only and does not interfere with the actual crawling in any way.
-
 
 ### Manual Start
 
@@ -188,7 +187,7 @@ python3 -m venv .venv
 - `_process_html(html: str) -> str`: transform HTML before it is saved to S3
 - `_filter_urls(urls: set[str]) -> set[str]`: restrict which discovered URLs are forwarded to the dispatcher (call `super()._filter_urls()` to keep the whitelist/robots.txt behavior)
 
-**MediaWikiScraperWoker** is a sepcial subclass for WikiMedia pages. Those tend to have a lot more junk pages (Files, Images etc.) than actualy article pages so this class filters them out.
+**MediaWikiScraperWorker** is a special subclass for MediaWiki pages. Those tend to have a lot more junk pages (Files, Images etc.) than actual article pages so this class filters them out.
 
 ## AI-Usage
 

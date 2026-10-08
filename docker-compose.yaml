@@ -33,7 +33,7 @@ services:
   crawler:
     build: ./crawler
     # does not start automatically on a 'docker compose up -d'
-    # start seperately via 'docker compose up -d crawler' once any whitelist and seed settings are complete (see seed.py)
+    # start separately via 'docker compose up -d crawler' once any whitelist and seed settings are complete (see seed.py)
     profiles: ["crawler"]
     depends_on:
       queue:
@@ -108,7 +108,7 @@ services:
   
 
   # MESSAGE QUEUE
-  # coordinate and synchonize the crawlers on a set of urls
+  # coordinate and synchronize the crawlers on a set of urls
   queue:
     image: redis:8.6.2
     restart: always
@@ -146,7 +146,7 @@ services:
       - ./monitor-role.sh:/docker-entrypoint-initdb.d/monitor-role.sh:z # REMOVE BEFORE FLIGHT :z is just for Fedora 
 
   # ADMINER
-  # admin interface into the postgress database
+  # admin interface into the postgres database
   adminer:
     image: adminer:5.4.2
     restart: always

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Creates the read-only role the monitor service connects as.
-# Mounted next to init.sql so the role gets added upon creating the databse
+# Mounted next to init.sql so the role gets added upon creating the database
 # Run by hand using: docker compose exec db bash /docker-entrypoint-initdb.d/monitor-role.sh
 set -euo pipefail
 

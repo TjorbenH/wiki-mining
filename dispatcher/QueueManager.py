@@ -15,13 +15,13 @@ class QueueManager:
     Orchestrates URLs that have yet to be scraped into the Redis Queue for Crawlers and enters them into the database.
     step by step:
         1. read new urls from the redis queue
-        2. check for exisitence in the DawData DB
+        2. check for existence in the RawData DB
             a) if an entry exists drop the url and continue 
             b) if no entry exists create a new entry with the id and link field 
-        3. Enter all connections (origin_id, destination_id) that got discorvered into the Links DB
+        3. Enter all connections (origin_id, destination_id) that got discovered into the Links DB
         4. Push new URLs to Scrape and their ID back to the crawlers over Redis
 
-    QueueManager is the only component that assigns RawData ids or write to the Links table.
+    QueueManager is the only component that assigns RawData ids or writes to the Links table.
     Start/stop with run() and stop()
     """
 
@@ -136,7 +136,7 @@ class QueueManager:
         """Enters a batch of (msg_id, {"origin_id":..., "urls":...}) entries into the RawData DB,
         checks which URLs are genuinely new, dispatches those back to the crawlers via
         crawl_stream, then acks the batch's msg_ids.
-        Idempotent for entries that were allready fully processed.
+        Idempotent for entries that were already fully processed.
         """
         if not batch:
             return 0
@@ -202,7 +202,7 @@ class QueueManager:
             )
             raise
 
-        # enter genuinely new links (xmax != 0) back into redis
+        # enter genuinely new links (xmax = 0) back into redis
         try:
             if new_rows:
                 async with self.redis_client.pipeline(transaction=True) as pipe:
@@ -216,8 +216,8 @@ class QueueManager:
             )
             raise
 
-        # acking at this point is fine as all links are n
-        # ow in the DB and back into the redis queue so nothing can get lost anymore
+        # acking at this point is fine as all links are
+        # now in the DB and back into the redis queue so nothing can get lost anymore
         await ack(msg_ids)
 
         logger.info(f"Batch: {len(pairs)} links processed, {len(new_rows)} URLs dispatched to {self.crawl_stream}.")

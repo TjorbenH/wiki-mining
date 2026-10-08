@@ -19,8 +19,8 @@ from DataBaseClient import DataBaseClient
 logger = logging.getLogger(__name__)
 
 class ScraperWorker:
-    """ ScaperWorker is at its core a resource handle for a number of IO-threads.
-    These threads fetches URLs out of the Redis Queue, process the html and run an extraction scheme to find and store relevant new URLs to crawl.
+    """ ScraperWorker is at its core a resource handle for a number of IO-threads.
+    These threads fetch URLs out of the Redis Queue, process the html and run an extraction scheme to find and store relevant new URLs to crawl.
     Start / Stop using the run() and stop() method.
     Subclass and override _process_html / _filter_urls to customize per-site behavior. 
     """
@@ -54,7 +54,7 @@ class ScraperWorker:
         
         self.database = DataBaseClient(pg_pool)
         
-        # hostname identifies the dockercontainer this scraper runs in to avoid conflicts with the redis queue
+        # hostname identifies the docker container this scraper runs in to avoid conflicts with the redis queue
         self.hostname = hostname
         
         self._headers = headers
@@ -72,11 +72,11 @@ class ScraperWorker:
         # Mutex to prevent calling run multiple times
         self.run_mutex = asyncio.Lock()
         
-        # Session with custom header if a website requires identification for automated scapeing (wikipedia)
+        # Session with custom header if a website requires identification for automated scraping (wikipedia)
         self.session = None  
         
         # domain whitelist + parsed robots.txt rules, set up exclusively by seed.py and loaded
-        # once per run() call - see _load_domains(). Never rechecked afterward.
+        # once per run() call - see _load_whitelists(). Never rechecked afterward.
         self._domain_parsers: dict[str, RobotFileParser] = {}
     
     async def _ensure_stream_group(self, stream, group) -> None:
@@ -91,7 +91,7 @@ class ScraperWorker:
     async def _load_whitelists(self) -> None:
         """ Load the domain whitelist + robots.txt rules set up by seed.py. 
         Important: this is a one off call at the start of run. 
-        Any newly whitelisted domains are NOT passed on util the ScraperWorker gets restarted.
+        Any newly whitelisted domains are NOT passed on until the ScraperWorker gets restarted.
         """
         domains = await self.database.get_domain_whitelist()
         parsers = {}
@@ -105,7 +105,7 @@ class ScraperWorker:
     async def run(self, concurrency_limit: int = 10, rate_limit: int = 1) -> None:
         """ Start <concurrency_limit> many crawler tasks each running with a per item rate limit of <rate_limit>. """
         if self.run_mutex.locked():
-            logger.error("Scapers are already running. No more run() calls permitted!")
+            logger.error("Scrapers are already running. No more run() calls permitted!")
             return
         
         async with self.run_mutex:
@@ -138,7 +138,7 @@ class ScraperWorker:
         if not self.run_mutex.locked():
             logger.error("Received stop signal without any scrapers running!")
             return
-        logger.info("Recieved stop signal ...")
+        logger.info("Received stop signal ...")
         self.stop_event.set()
         
     async def _worker_loop(self, worker_id: int, rate_limit: int) -> None:
@@ -174,14 +174,14 @@ class ScraperWorker:
 
             await asyncio.sleep(rate_limit) # basic per item rate limiting
     
-    async def _pop_url(self, consumer_name:str) -> tuple[str, dict] | None:
+    async def _pop_url(self, consumer_name: str) -> tuple[str, dict] | None:
         """ Returns (message_id, {"id":..., "url":...}) or None if nothing arrived."""
         result = await self.redis_client.xreadgroup(
             groupname=self.crawl_group,
             consumername=consumer_name,
             streams={self.crawl_stream: ">"},  # ">" = only entries never delivered to this group
             count=1,
-            block=1000,  # ms timeout to stop this from blocking and not responding to a stop sigal
+            block=1000,  # ms timeout to stop this from blocking and not responding to a stop signal
         )
 
         if not result:
@@ -197,7 +197,7 @@ class ScraperWorker:
             return None
         
     async def _process_url(self, url_id: int, url: str) -> None:
-        """ Run the processing pipline for a single url.
+        """ Run the processing pipeline for a single url.
         Fetch the website -> process the html -> save the html -> discover and filter new urls -> write back urls to the dispatcher
         Assumes mark_in_progress has already been called by the caller (_worker_loop).
         """
@@ -249,7 +249,7 @@ class ScraperWorker:
         """Uploads the given bytes to S3 and returns the storage_key (object name) they were stored under.
         Retries upload_attempts times on upload failures.
         """
-        MAX_STORAGE_KEY_PREFIX_BYTES = 200 # CAREFULL: magic number
+        MAX_STORAGE_KEY_PREFIX_BYTES = 200 # CAREFUL: magic number
         def truncate_utf8(s: str, max_bytes: int) -> str:
             # truncate so the total key stays well under the S3 1024-byte key limit
             encoded = s.encode("utf-8")
@@ -302,12 +302,12 @@ class ScraperWorker:
 
         return links
     
-    async def _process_html(self, html:str) -> str:
-        """ Interface: Overwrite to set specific processing rules for the html data (e.g. filter for certain fields ...)"""
+    async def _process_html(self, html: str) -> str:
+        """ Interface: Override to set specific processing rules for the html data (e.g. filter for certain fields ...)"""
         return html
     
-    async def _filter_urls(self, urls: set[str]) ->set[str]:
-        """ Interface: Overwrite to set specific crawl rules (e.g. certain top level domains, whitelist, blacklist ...)
+    async def _filter_urls(self, urls: set[str]) -> set[str]:
+        """ Interface: Override to set specific crawl rules (e.g. certain top level domains, whitelist, blacklist ...)
         By default the crawler keeps only URLs on whitelisted domains and ensures it follows hostname specific robots.txt rules.
         It's recommended to keep this behavior and to call super()._filter_urls() in any subclass.
         """

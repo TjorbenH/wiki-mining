@@ -14,7 +14,7 @@ class ReclaimManager:
     """ Recovers work that QueueManager and the crawlers lost track of (usually due to failures):
         1. XAUTOCLAIMs dispatcher_stream entries stuck in the consumer group's pending list
            (a dispatcher consumer crashed, or errored, after XREADGROUP but before XACK)
-           and replays them through QueueManager.process_batch().
+           and replays them through QueueManager._process_batch().
         2. Sweeps RawData rows stuck at scraping_status='failed' and re-queues them onto
            crawl_stream with exponential backoff, up to a max attempt count.
         3. Marks scrapes that died mid-flight (crawler crash) as 'failed', so sweep 2 retries them.
@@ -190,7 +190,7 @@ class ReclaimManager:
         return len(claimed_msg_ids) + len(swept)
 
     async def _reclaim_pending_batch(self) -> int:
-        """Claims dispatcher_stream entries that have sat unacked past pending_min_idle_ms and replays them through QueueManager.process_batch()."""
+        """Claims dispatcher_stream entries that have sat unacked past pending_min_idle_ms and replays them through QueueManager._process_batch()."""
         _, claimed, deleted = await self.redis_client.xautoclaim(
             name=self.dispatcher_stream,
             groupname=self.dispatcher_group,

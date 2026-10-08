@@ -16,7 +16,7 @@ if [ -x .venv/bin/ruff ]; then
     .venv/bin/ruff check $py_files
 else
     echo "pre-commit: WARNING - .venv/bin/ruff not found, skipping lint (py_compile alone" \
-         "won't catch bugs like an undefined name). One-time setup: see README.md Development section."
+         "won't catch bugs like an undefined name). One-time setup: see README.md Contributing section."
 fi
 
 echo "pre-commit: validating docker-compose config..."
